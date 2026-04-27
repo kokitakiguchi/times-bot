@@ -1,0 +1,8 @@
+services:
+  times-bot:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./routes.yaml:/app/routes.yaml:ro
+    restart: unless-stopped

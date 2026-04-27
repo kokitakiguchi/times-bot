@@ -16,6 +16,7 @@ ENV NODE_ENV=production
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 COPY --from=build /app/dist ./dist
+# Runtime configuration is provided from the host via docker compose.
 COPY env.example ./env.example
 COPY routes.example.yaml ./routes.example.yaml
 CMD ["node", "dist/index.js"]

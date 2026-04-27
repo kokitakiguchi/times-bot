@@ -2,22 +2,77 @@
 
 Discord server内の特定チャンネルで、特定ユーザーの投稿だけを別チャンネルへ転送するBotです。
 
-## 必要なもの
+## 最短手順
 
-実際に動かすには、次の情報を自分で用意する必要があります。
+1. `env.example` をコピーして `.env` を作る
+2. `routes.example.yaml` をコピーして `routes.yaml` を作る
+3. 各IDとトークンを埋める
+4. Docker Compose が使える環境で `docker compose up --build` を実行する
+
+```bash
+cp env.example .env
+cp routes.example.yaml routes.yaml
+docker compose up --build
+```
+
+Compose は手元の `.env` を `env_file` で読み込み、`routes.yaml` を `/app/routes.yaml` に read-only mount して起動します。秘密情報はイメージに焼き込まれません。
+
+## 設定するもの
+
+実際に動かすには、次の情報を自分で用意します。
 
 - `DISCORD_TOKEN`
-  - Discord Developer Portalで作成したBotのトークン
+  Discord Developer Portalで作成したBotのトークン
 - `GUILD_ID`
-  - Botを動かすDiscordサーバーのID
+  Botを動かすDiscordサーバーのID
 - `sourceChannelId`
-  - 監視元チャンネルのID
+  監視元チャンネルのID
 - `routes[].userId`
-  - 転送対象ユーザーのID
+  転送対象ユーザーのID
 - `routes[].destinationChannelId`
-  - そのユーザーの転送先チャンネルID
+  そのユーザーの転送先チャンネルID
 
-IDを調べるには、Discordの `詳細設定 > 開発者モード` をONにして、サーバー・チャンネル・ユーザーを右クリックして `IDをコピー` を使います。
+IDを調べるには、Discordの `詳細設定 > 開発者モード` をONにして、サーバー・チャンネル・ユーザーを右クリックし `IDをコピー` を使います。
+
+`.env` の例:
+
+```env
+DISCORD_TOKEN=your_bot_token_here
+GUILD_ID=123456789012345678
+DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=true
+```
+
+`DISCORD_ENABLE_MESSAGE_CONTENT_INTENT` は通常 `true` のままで構いません。Developer Portal 側で Message Content Intent を有効化できない暫定確認だけ `false` を使います。その場合は本文転送が制限される可能性があります。
+
+`routes.yaml` の例:
+
+```yaml
+sourceChannelId: "123456789012345678"
+routes:
+  - userId: "111111111111111111"
+    destinationChannelId: "222222222222222222"
+    enabled: true
+```
+
+雛形として [env.example](/workspaces/times-bot/env.example) と [routes.example.yaml](/workspaces/times-bot/routes.example.yaml) があります。
+
+## Dockerで実行する
+
+正規の実行導線は `docker compose up --build` です。Docker Engine と Compose v2 が使える環境で実行してください。
+
+```bash
+docker compose up --build
+```
+
+よく使うコマンド:
+
+```bash
+docker compose logs -f
+docker compose restart
+docker compose down
+```
+
+初回起動時はイメージのビルドが走ります。正常に起動するとログに `bot_ready` が出ます。
 
 ## Discord側の設定
 
@@ -35,41 +90,15 @@ Botを作成したら、少なくとも次を確認してください。
 - `GuildMessages`
 - `MessageContent`
 
-## 設定ファイル
+## devcontainerとローカル実行
 
-`.env` を作成します。
+`.devcontainer/` は開発作業用です。実行だけなら Compose を使い、コード修正やテストをしたいときだけ devcontainer やローカル Node.js 環境を使います。Compose 実行は Docker が使えるホスト環境を前提にしています。
 
-```env
-DISCORD_TOKEN=your_bot_token_here
-GUILD_ID=123456789012345678
-DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=true
-```
-
-`routes.yaml` を作成します。
-
-```yaml
-sourceChannelId: "123456789012345678"
-routes:
-  - userId: "111111111111111111"
-    destinationChannelId: "222222222222222222"
-    enabled: true
-```
-
-雛形として [env.example](/workspaces/times-bot/env.example) と [routes.example.yaml](/workspaces/times-bot/routes.example.yaml) があります。
-
-## 起動手順
-
-Node.js 22系と `pnpm` を使います。
+ローカルで直接動かす場合は Node.js 22系と `pnpm` を使います。
 
 ```bash
 pnpm install
 pnpm test
-pnpm dev
-```
-
-本番相当で試すなら次でも動きます。
-
-```bash
 pnpm build
 pnpm start
 ```
@@ -86,12 +115,14 @@ pnpm start
 ## よくある詰まりどころ
 
 - `DISCORD_TOKEN is required.`
-  - `.env` がないか、値が空です
+  `.env` がないか、値が空です
 - `GUILD_ID must be a valid Discord snowflake.`
-  - IDの形式が不正です
+  IDの形式が不正です
 - `Used disallowed intents`
-  - Developer Portalで `Message Content Intent` を有効化するか、ローカル確認だけなら `.env` に `DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=false` を追加してください
+  Developer Portalで `Message Content Intent` を有効化するか、暫定確認だけなら `.env` に `DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=false` を設定してください
+- `Unknown Guild`
+  `GUILD_ID` が違うか、Botがそのサーバーに招待されていません
 - `sourceChannelId ... is not a text-based channel`
-  - フォーラムや対象外チャンネルを指定している可能性があります
+  フォーラムや対象外チャンネルを指定している可能性があります
 - `destinationChannelId ... is not a sendable text channel`
-  - 転送先が送信可能なテキストチャンネルではないか、Bot権限が不足しています
+  転送先が送信可能なテキストチャンネルではないか、Bot権限が不足しています
