@@ -1,0 +1,8 @@
+.devcontainer/
+.git/
+.env
+coverage/
+dist/
+node_modules/
+routes.yaml
+test/

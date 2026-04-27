@@ -1,0 +1,5 @@
+sourceChannelId: "123"
+routes:
+  - userId: "111"
+    destinationChannelId: "222"
+    enabled: true
