@@ -18,6 +18,7 @@ COPY src ./src
 RUN pnpm build
 
 FROM base AS runtime
+# Install runtime dependencies for better-sqlite3 (smaller than build deps)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
@@ -25,7 +26,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod
+# Install dependencies including devDependencies temporarily for better-sqlite3 rebuild
+RUN pnpm install --frozen-lockfile && \
+    # Rebuild better-sqlite3 for production
+    npm rebuild better-sqlite3 --build-from-source && \
+    # Remove devDependencies
+    pnpm prune --prod
 COPY --from=build /app/dist ./dist
 # Runtime configuration is provided from the host via docker compose.
 COPY env.example ./env.example

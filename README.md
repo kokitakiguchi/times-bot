@@ -171,3 +171,8 @@ pnpm start
   フォーラムや対象外チャンネルを指定している可能性があります
 - `destinationChannelId ... is not a sendable text channel`
   転送先が送信可能なテキストチャンネルではないか、Bot権限が不足しています
+- `Could not locate the bindings file.`
+  `better-sqlite3` のネイティブバインディングが見つかりません。以下を確認してください
+  - Docker イメージを再ビルドしてください: `docker compose up --build`
+  - ホスト環境の Node.js バージョンと Docker の Node.js バージョン（22.x）が一致しているか確認してください
+  - ローカルで実行する場合は、`pnpm rebuild` を実行してネイティブモジュールを再構築してください
