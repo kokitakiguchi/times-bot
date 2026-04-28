@@ -2,7 +2,13 @@ FROM node:22-slim AS base
 WORKDIR /app
 RUN corepack enable
 
+# Install build dependencies for better-sqlite3
 FROM base AS deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
@@ -12,6 +18,11 @@ COPY src ./src
 RUN pnpm build
 
 FROM base AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
@@ -19,4 +30,6 @@ COPY --from=build /app/dist ./dist
 # Runtime configuration is provided from the host via docker compose.
 COPY env.example ./env.example
 COPY routes.example.yaml ./routes.example.yaml
+# Create data directory for SQLite database
+RUN mkdir -p data
 CMD ["node", "dist/index.js"]

@@ -4,13 +4,13 @@ import path from "node:path";
 import { parse as parseDotenv } from "dotenv";
 import YAML from "yaml";
 
-import type { AppConfig, RouteConfig } from "./types.js";
+import type { AppConfig } from "./types.js";
 
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
+const DEFAULT_TIMES_DB_PATH = "data/times.sqlite";
 
 interface LoadedRoutesConfig {
   sourceChannelId: string;
-  routes: RouteConfig[];
 }
 
 interface LoadAppConfigOptions {
@@ -31,18 +31,29 @@ export async function loadAppConfig(
     ...fileEnv,
     ...(options.baseEnv ?? process.env),
   });
+
+  if (!envConfig.enableMessageContentIntent) {
+    throw new Error(
+      "DISCORD_ENABLE_MESSAGE_CONTENT_INTENT must be true because message persistence requires Message Content Intent.",
+    );
+  }
+
   const routesRaw = await readRequiredFile(routesPath, "routes.yaml");
   const routesConfig = parseRoutesConfig(routesRaw);
 
   return {
     ...envConfig,
+    timesDbPath: path.resolve(cwd, envConfig.timesDbPath),
     ...routesConfig,
   };
 }
 
 export function parseEnvConfig(
   env: Record<string, string | undefined>,
-): Pick<AppConfig, "discordToken" | "guildId" | "enableMessageContentIntent"> {
+): Pick<
+  AppConfig,
+  "discordToken" | "guildId" | "enableMessageContentIntent" | "timesCategoryId" | "timesDbPath"
+> {
   const discordToken = readRequiredString(env.DISCORD_TOKEN, "DISCORD_TOKEN");
   const guildId = readSnowflake(env.GUILD_ID, "GUILD_ID");
   const enableMessageContentIntent = readBooleanString(
@@ -50,11 +61,21 @@ export function parseEnvConfig(
     "DISCORD_ENABLE_MESSAGE_CONTENT_INTENT",
     true,
   );
+  const timesCategoryId = readSnowflake(
+    env.TIMES_CATEGORY_ID,
+    "TIMES_CATEGORY_ID",
+  );
+  const timesDbPath = readOptionalString(
+    env.TIMES_DB_PATH,
+    DEFAULT_TIMES_DB_PATH,
+  );
 
   return {
     discordToken,
     guildId,
     enableMessageContentIntent,
+    timesCategoryId,
+    timesDbPath,
   };
 }
 
@@ -75,38 +96,9 @@ export function parseRoutesConfig(raw: string): LoadedRoutesConfig {
     root.sourceChannelId,
     "routes.yaml sourceChannelId",
   );
-  const routesValue = root.routes;
-
-  if (!Array.isArray(routesValue)) {
-    throw new Error("routes.yaml routes must be an array.");
-  }
-
-  const seenUserIds = new Set<string>();
-  const routes = routesValue.map((value, index) => {
-    const route = expectRecord(value, `routes[${index}]`);
-    const userId = readSnowflake(route.userId, `routes[${index}].userId`);
-    const destinationChannelId = readSnowflake(
-      route.destinationChannelId,
-      `routes[${index}].destinationChannelId`,
-    );
-    const enabled = readBoolean(route.enabled, `routes[${index}].enabled`, true);
-
-    if (seenUserIds.has(userId)) {
-      throw new Error(`Duplicate userId found in routes.yaml: ${userId}`);
-    }
-
-    seenUserIds.add(userId);
-
-    return {
-      userId,
-      destinationChannelId,
-      enabled,
-    };
-  });
 
   return {
     sourceChannelId,
-    routes,
   };
 }
 
@@ -144,6 +136,18 @@ function readRequiredString(
   return value.trim();
 }
 
+function readOptionalString(value: unknown, defaultValue: string): string {
+  if (value === undefined) {
+    return defaultValue;
+  }
+
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error("TIMES_DB_PATH must be a non-empty string when provided.");
+  }
+
+  return value.trim();
+}
+
 function readSnowflake(value: unknown, label: string): string {
   const normalized = readRequiredString(value, label);
 
@@ -152,22 +156,6 @@ function readSnowflake(value: unknown, label: string): string {
   }
 
   return normalized;
-}
-
-function readBoolean(
-  value: unknown,
-  label: string,
-  defaultValue: boolean,
-): boolean {
-  if (value === undefined) {
-    return defaultValue;
-  }
-
-  if (typeof value !== "boolean") {
-    throw new Error(`${label} must be a boolean when provided.`);
-  }
-
-  return value;
 }
 
 function readBooleanString(
@@ -180,7 +168,7 @@ function readBooleanString(
   }
 
   if (typeof value !== "string") {
-    throw new Error(`${label} must be \"true\" or \"false\" when provided.`);
+    throw new Error(`${label} must be "true" or "false" when provided.`);
   }
 
   const normalized = value.trim().toLowerCase();
@@ -193,7 +181,7 @@ function readBooleanString(
     return false;
   }
 
-  throw new Error(`${label} must be \"true\" or \"false\" when provided.`);
+  throw new Error(`${label} must be "true" or "false" when provided.`);
 }
 
 function expectRecord(

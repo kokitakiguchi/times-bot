@@ -1,61 +1,37 @@
-# Discordユーザー別転送Botの技術選定
+# SQLite ベースの times 自動作成とメッセージ保存
 
 ## Summary
-- **採用技術**: **Node.js 22 LTS + TypeScript + `discord.js` v14**
-- **運用形態**: **常時起動のコンテナ**（Railway / Render / Fly.io / 自前VPSのいずれでも載せられる Docker 前提）
-- **設定方式**: **設定ファイル管理**。v1 は DB を入れず、**`.env` + `routes.yaml`** で完結させる
-- **選定理由**: この要件は Discord Gateway の常時接続が前提で、`discord.js` は Discord Bot 向けの情報量・保守性・API追従が強い。Go / Rust でも実装は可能だが、v1 の立ち上がり速度と保守のしやすさでは TypeScript が最も堅い
 
-## Key Changes / Interfaces
-- **ランタイム/ツール**
-  - Node.js 22 系
-  - TypeScript
-  - パッケージ管理は `pnpm`
-  - 開発実行は `tsx`
-  - テストは `vitest`
-  - ログは `pino`
-  - 環境変数読み込みは `dotenv`
-- **Discord ライブラリ**
-  - `discord.js` を使って Gateway 接続とメッセージ送信を管理
-  - 必要 Intent は `Guilds`, `GuildMessages`, `MessageContent`
-- **設定インターフェース**
-  - `.env`
-    - `DISCORD_TOKEN`
-    - `GUILD_ID`（v1 は単一サーバー前提なので固定）
-  - `routes.yaml`
-    - `sourceChannelId`
-    - `routes[]`
-      - `userId`
-      - `destinationChannelId`
-      - `enabled`
-- **転送仕様**
-  - 監視対象は **1つの送信元チャンネル**
-  - そのチャンネルに投稿されたメッセージを、**投稿者ユーザーIDで判定して個別の転送先チャンネルへ送る**
-  - v1 では **本文 + 添付ファイル** を転送対象にする
-  - **bot / webhook の投稿は無視**して転送ループを防ぐ
-  - 転送時の `allowed_mentions` は絞って、不要なメンション拡散を防ぐ
-- **非採用**
-  - Python は使わない
-  - v1 では DB / Prisma / 管理用 Slash Command は入れない
-  - Serverless は採らない。Discord Bot は Gateway の持続接続前提なので、常駐プロセスのほうが素直
+`routes.yaml` のユーザー別転送設定をやめ、`sourceChannelId` に投稿したユーザーを自動登録して、`TIMES_CATEGORY_ID` 配下に `times-<username>` チャンネルを自動作成する構成へ移行する。  
+永続化は `better-sqlite3` を採用し、`作成したチャンネルID`、`username/displayName`、`メッセージ内容` を保存する。メッセージは全件保持するが、各メッセージの編集履歴は別バージョン化せず、同じ行を更新して `edited/deleted` 状態を持つ。編集・削除は SQLite にだけ反映し、転送先 Discord メッセージは更新しない。
 
-## Test Plan
-- 監視対象チャンネルの投稿が、対応する転送先に届く
-- 対応表にないユーザーの投稿は転送されない
-- `enabled: false` のユーザーは転送されない
-- bot / webhook メッセージが無視される
-- 添付ファイル付きメッセージが転送される
-- メンションが意図せず再通知されない
-- 再起動後に設定ファイルを正しく読み込める
+レビュー指摘の不具合も同時に修正し、`sourceChannelId` に forum/media の親チャンネルを指定した場合は起動時に失敗させる。
 
-## Assumptions
-- v1 は **単一 Guild / 単一 source channel**
-- 転送先は **ユーザーごとに 1 チャンネル**
-- 設定変更は **ファイル編集 + Bot 再起動** で反映
-- 将来、運用者が Discord 上で設定を変えたくなったら、次段階で **Slash Command + DB** に拡張する
+## Implementation Changes
 
-## References
-- [`discord.js` docs](https://discord.js.org/docs)  
-- [Discord Gateway official docs](https://docs.discord.com/developers/events/gateway)  
-- [Discord Message Content intent](https://docs.discord.com/developers/events/gateway#message-content-intent)  
-- [Node.js release policy](https://nodejs.org/en/about/releases/)  
+- 設定と起動時バリデーション
+  - `.env` に `TIMES_CATEGORY_ID` を必須追加する
+  - `.env` に `TIMES_DB_PATH` を追加し、既定値は `data/times.sqlite` にする
+  - `routes.yaml` は `sourceChannelId` のみ必須とし、既存の `routes[]` 前提を廃止する
+  - `TIMES_CATEGORY_ID` は guild 内のカテゴリチャンネルであることを起動時に検証する
+  - `DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=false` の場合は、今回の SQLite メッセージ保存要件と矛盾するため起動エラーにする
+  - `sourceChannelId` は text channel/thread のみ許可し、forum/media の親チャンネルは明示的に拒否する
+
+- ユーザー登録と times チャンネル作成
+  - `MessageCreate` で対象 source channel に投稿したユーザーを自動登録する
+  - ユーザー未登録時は `users` テーブルに upsert し、同時に `TIMES_CATEGORY_ID` 配下へ転送先 text channel を自動作成する
+  - チャンネル名は `times-<sanitized username>` を基本とし、sanitize 後に空になる場合や衝突する場合は `times-<username>-<userId末尾6桁>` にフォールバックする
+  - 作成済みチャンネル名は固定し、username 変更時も rename しない
+  - 以後の投稿で `username` と `displayName` のスナップショットは更新する
+
+- 転送とメッセージ保存
+  - `MessageCreate` 時は従来どおり転送し、その結果を SQLite に保存する
+  - `MessageUpdate` 時は対象メッセージ行の `content` と `source_edited_at` を更新する
+  - `MessageDelete` 時は対象メッセージ行に `source_deleted_at` を記録し、削除済みフラグを立てる
+  - 編集・削除イベントでは Discord 上の転送先メッセージは変更しない
+  - 添付ファイルは転送は継続するが、SQLite には本文のみ保存する
+  - ただし DB 上で本文だけでは不完全になるため、`has_attachments` は保持して「添付ありの投稿だった」ことだけ分かるようにする
+
+- SQLite ストア
+  - `better-sqlite3` を導入し、起動時にテーブル作成と軽い migration を実行する
+  - ストア層を分けて�

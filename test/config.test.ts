@@ -12,17 +12,12 @@ describe("loadAppConfig", () => {
 
     await writeFile(
       path.join(cwd, ".env"),
-      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\n",
+      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\nTIMES_CATEGORY_ID=123456789012345699\n",
       "utf8",
     );
     await writeFile(
       path.join(cwd, "routes.yaml"),
-      [
-        'sourceChannelId: "223456789012345678"',
-        "routes:",
-        '  - userId: "323456789012345678"',
-        '    destinationChannelId: "423456789012345678"',
-      ].join("\n"),
+      'sourceChannelId: "223456789012345678"\n',
       "utf8",
     );
 
@@ -32,26 +27,20 @@ describe("loadAppConfig", () => {
     expect(config.guildId).toBe("123456789012345678");
     expect(config.enableMessageContentIntent).toBe(true);
     expect(config.sourceChannelId).toBe("223456789012345678");
-    expect(config.routes).toEqual([
-      {
-        userId: "323456789012345678",
-        destinationChannelId: "423456789012345678",
-        enabled: true,
-      },
-    ]);
+    expect(config.timesCategoryId).toBe("123456789012345699");
   });
 
   it("fails when required env values are missing", async () => {
     const cwd = await createTempProject();
 
-    await writeFile(path.join(cwd, "routes.yaml"), "sourceChannelId: \"223456789012345678\"\nroutes: []\n", "utf8");
+    await writeFile(path.join(cwd, "routes.yaml"), 'sourceChannelId: "223456789012345678"\n', "utf8");
 
     await expect(loadAppConfig({ cwd, baseEnv: {} })).rejects.toThrow(
       "DISCORD_TOKEN is required.",
     );
   });
 
-  it("fails on duplicate userId values", async () => {
+  it("fails when TIMES_CATEGORY_ID is missing", async () => {
     const cwd = await createTempProject();
 
     await writeFile(
@@ -61,19 +50,12 @@ describe("loadAppConfig", () => {
     );
     await writeFile(
       path.join(cwd, "routes.yaml"),
-      [
-        'sourceChannelId: "223456789012345678"',
-        "routes:",
-        '  - userId: "323456789012345678"',
-        '    destinationChannelId: "423456789012345678"',
-        '  - userId: "323456789012345678"',
-        '    destinationChannelId: "523456789012345678"',
-      ].join("\n"),
+      'sourceChannelId: "223456789012345678"\n',
       "utf8",
     );
 
     await expect(loadAppConfig({ cwd, baseEnv: {} })).rejects.toThrow(
-      "Duplicate userId found in routes.yaml: 323456789012345678",
+      "TIMES_CATEGORY_ID is required.",
     );
   });
 
@@ -82,10 +64,10 @@ describe("loadAppConfig", () => {
 
     await writeFile(
       path.join(cwd, ".env"),
-      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\n",
+      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\nTIMES_CATEGORY_ID=123456789012345699\n",
       "utf8",
     );
-    await writeFile(path.join(cwd, "routes.yaml"), "routes: [\n", "utf8");
+    await writeFile(path.join(cwd, "routes.yaml"), "sourceChannelId: [\n", "utf8");
 
     await expect(loadAppConfig({ cwd, baseEnv: {} })).rejects.toThrow(
       /routes\.yaml is not valid YAML:/,
@@ -97,12 +79,12 @@ describe("loadAppConfig", () => {
 
     await writeFile(
       path.join(cwd, ".env"),
-      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\n",
+      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\nTIMES_CATEGORY_ID=123456789012345699\n",
       "utf8",
     );
     await writeFile(
       path.join(cwd, "routes.yaml"),
-      "routes: []\n",
+      "sourceChannelId:\n",
       "utf8",
     );
 
@@ -119,24 +101,21 @@ describe("loadAppConfig", () => {
       [
         "DISCORD_TOKEN=test-token",
         "GUILD_ID=123456789012345678",
+        "TIMES_CATEGORY_ID=123456789012345699",
         "DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=false",
       ].join("\n"),
       "utf8",
     );
     await writeFile(
       path.join(cwd, "routes.yaml"),
-      [
-        'sourceChannelId: "223456789012345678"',
-        "routes:",
-        '  - userId: "323456789012345678"',
-        '    destinationChannelId: "423456789012345678"',
-      ].join("\n"),
+      'sourceChannelId: "223456789012345678"\n',
       "utf8",
     );
 
-    const config = await loadAppConfig({ cwd, baseEnv: {} });
-
-    expect(config.enableMessageContentIntent).toBe(false);
+    // Should fail because Message Content Intent is required for message persistence
+    await expect(loadAppConfig({ cwd, baseEnv: {} })).rejects.toThrow(
+      "DISCORD_ENABLE_MESSAGE_CONTENT_INTENT must be true because message persistence requires Message Content Intent.",
+    );
   });
 
   it("fails on invalid Message Content Intent env values", async () => {
@@ -147,18 +126,14 @@ describe("loadAppConfig", () => {
       [
         "DISCORD_TOKEN=test-token",
         "GUILD_ID=123456789012345678",
+        "TIMES_CATEGORY_ID=123456789012345699",
         "DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=maybe",
       ].join("\n"),
       "utf8",
     );
     await writeFile(
       path.join(cwd, "routes.yaml"),
-      [
-        'sourceChannelId: "223456789012345678"',
-        "routes:",
-        '  - userId: "323456789012345678"',
-        '    destinationChannelId: "423456789012345678"',
-      ].join("\n"),
+      'sourceChannelId: "223456789012345678"\n',
       "utf8",
     );
 

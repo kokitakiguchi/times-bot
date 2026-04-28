@@ -123,12 +123,12 @@ describe("decideForward", () => {
     [
       "unregistered user",
       createMessage({ authorId: "999999999999999999" }),
-      "no_route",
+      "unregistered_user",
     ],
     [
       "disabled route",
       createMessage({ authorId: "523456789012345678" }),
-      "route_disabled",
+      "disabled_route",
     ],
     [
       "bot author",

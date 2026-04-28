@@ -1,12 +1,19 @@
 # times-bot
 
-Discord server内の特定チャンネルで、特定ユーザーの投稿だけを別チャンネルへ転送するBotです。
+Discord server 内の特定チャンネルに投稿したユーザーのメッセージを自動的に個人用の `times-<username>` チャンネルに転送し、SQLite で永続化する Bot です。
+
+## 特徴
+
+- **自動ユーザー登録**: `sourceChannelId` に投稿したユーザーは自動的に登録されます
+- **自動チャンネル作成**: ユーザー初回投稿時に `times-<username>` という専用チャンネルが自動作成されます
+- **メッセージ永続化**: すべてのメッセージを SQLite に保存し、編集・削除の履歴も記録します
+- **ユーザー情報スナップショット**: username や displayName の変更を追跡しつつ、チャンネル名は固定に保ちます
 
 ## 最短手順
 
 1. `env.example` をコピーして `.env` を作る
 2. `routes.example.yaml` をコピーして `routes.yaml` を作る
-3. 各IDとトークンを埋める
+3. 各ID、トークン、カテゴリを埋める
 4. Docker Compose が使える環境で `docker compose up --build` を実行する
 
 ```bash
@@ -15,46 +22,84 @@ cp routes.example.yaml routes.yaml
 docker compose up --build
 ```
 
-Compose は手元の `.env` を `env_file` で読み込み、`routes.yaml` を `/app/routes.yaml` に read-only mount して起動します。秘密情報はイメージに焼き込まれません。
+Compose は手元の `.env` を `env_file` で読み込み、`routes.yaml` を `/app/routes.yaml` に read-only mount して起動します。SQLite ファイル（デフォルト `data/times.sqlite`）は volume を通じて永続化されます。秘密情報はイメージに焼き込まれません。
 
 ## 設定するもの
 
 実際に動かすには、次の情報を自分で用意します。
 
-- `DISCORD_TOKEN`
-  Discord Developer Portalで作成したBotのトークン
-- `GUILD_ID`
-  Botを動かすDiscordサーバーのID
-- `sourceChannelId`
-  監視元チャンネルのID
-- `routes[].userId`
-  転送対象ユーザーのID
-- `routes[].destinationChannelId`
-  そのユーザーの転送先チャンネルID
+### 必須環境変数 (`.env`)
 
-IDを調べるには、Discordの `詳細設定 > 開発者モード` をONにして、サーバー・チャンネル・ユーザーを右クリックし `IDをコピー` を使います。
+- `DISCORD_TOKEN`
+  - Discord Developer Portal で作成した Bot のトークン
+- `GUILD_ID`
+  - Bot を動かす Discord サーバーのID
+- `TIMES_CATEGORY_ID`
+  - 自動作成される `times-<username>` チャンネルを配置するカテゴリID
+  - カテゴリに対して以下の権限が必要です
+    - Manage Channels (チャンネル作成)
+    - View Channels (チャンネル閲覧)
+    - Send Messages (メッセージ送信)
+    - Attach Files (ファイル添付)
+
+### オプション環境変数
+
+- `DISCORD_ENABLE_MESSAGE_CONTENT_INTENT` (デフォルト: `true`)
+  - メッセージ本文を転送するかどうか
+  - SQLite による永続化を行う都合上、`true` が必須です
+  - `false` を設定すると起動エラーになります
+- `TIMES_DB_PATH` (デフォルト: `data/times.sqlite`)
+  - SQLite ファイルの保存先パス
+
+### routes.yaml
+
+- `sourceChannelId`: 監視対象チャンネルの ID
+  - テキストチャンネルまたはスレッドのみ対応
+  - forum/media 親チャンネルは非対応です（起動時にエラーになります）
+
+IDを調べるには、Discord の `詳細設定 > 開発者モード` をONにして、サーバー・チャンネル・ユーザーを右クリックし `IDをコピー` を使います。
 
 `.env` の例:
 
 ```env
 DISCORD_TOKEN=your_bot_token_here
 GUILD_ID=123456789012345678
+TIMES_CATEGORY_ID=987654321098765432
 DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=true
+TIMES_DB_PATH=data/times.sqlite
 ```
-
-`DISCORD_ENABLE_MESSAGE_CONTENT_INTENT` は通常 `true` のままで構いません。Developer Portal 側で Message Content Intent を有効化できない暫定確認だけ `false` を使います。その場合は本文転送が制限される可能性があります。
 
 `routes.yaml` の例:
 
 ```yaml
 sourceChannelId: "123456789012345678"
-routes:
-  - userId: "111111111111111111"
-    destinationChannelId: "222222222222222222"
-    enabled: true
 ```
 
-雛形として [env.example](/workspaces/times-bot/env.example) と [routes.example.yaml](/workspaces/times-bot/routes.example.yaml) があります。
+雛形として [env.example](env.example) と [routes.example.yaml](routes.example.yaml) があります。
+
+## 自動登録フロー
+
+1. ユーザーが `sourceChannelId` のチャンネルにメッセージを投稿します
+2. Bot は投稿を検出し、DB にユーザー情報を記録します
+3. `TIMES_CATEGORY_ID` 配下に `times-<sanitized_username>` という新しいテキストチャンネルを作成します
+4. 元のメッセージを転送先チャンネルに送信し、DB に記録します
+5. 以降、同じユーザーの投稿はすべて同じ転送先チャンネルに送信されます
+
+## メッセージ履歴の管理
+
+- **作成**: メッセージが投稿されるたびに DB に記録されます
+- **編集**: Source channel でメッセージが編集されると、DB の `source_edited_at` と `content` が更新されます（転送先メッセージは更新されません）
+- **削除**: Source channel でメッセージが削除されると、DB に `source_deleted_at` が記録されます（転送先メッセージは削除されません）
+
+添付ファイルは転送時に Discord CDN からダウンロードされて転送先に添付されますが、DB には本文のみ保存されます。`has_attachments` フラグで「このメッセージには添付があった」ことを追跡できます。
+
+## ユーザーとチャンネル名について
+
+- ユーザー初回投稿時に `times-<sanitized_username>` という形式でチャンネルが作成されます
+- Username に特殊文字が含まれる場合は、英数字とハイフンのみの形式に sanitize されます
+- Sanitize 後に空になるか、既に同じ名前のチャンネルが存在する場合は `times-<username>-<userId末尾6桁>` にフォールバックします
+- ユーザーが Discord 上で username を変更しても、**チャンネル名は変わりません** （既に作成されたチャンネルを rename しないため）
+- DB 上の username と displayName は最新の値に更新されます
 
 ## Dockerで実行する
 
