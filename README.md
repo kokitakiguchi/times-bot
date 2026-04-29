@@ -124,10 +124,14 @@ docker compose down
 Botを作成したら、少なくとも次を確認してください。
 
 - Developer Portalの `Bot` 設定で `Message Content Intent` を有効化する
-- Botを対象サーバーに招待する
-- 監視元チャンネルでBotがメッセージを読めるようにする
-- 転送先チャンネルでBotが送信できるようにする
-- 添付ファイルも転送したい場合は、転送先で `Attach Files` 権限も付与する
+- Botを対象サーバーに招待する（権限には `Manage Channels`, `View Channels`, `Send Messages`, `Attach Files` を含める）
+- 監視元チャンネル（`sourceChannelId`）でBotがメッセージを読めるようにする
+- TIMES_CATEGORY_ID カテゴリで以下の権限を付与する
+  - Manage Channels: 自動チャンネル作成に必須
+  - View Channels: チャンネル閲覧に必須
+  - Send Messages: メッセージ送信に必須
+  - Attach Files: ファイル転送が必要な場合に必須
+- Bot のロールがカテゴリの権限設定より上位にあることを確認（ロールの順序が重要）
 
 このBotはコード上で次のIntentを使っています。
 
@@ -173,6 +177,15 @@ pnpm start
   転送先が送信可能なテキストチャンネルではないか、Bot権限が不足しています
 - `Could not locate the bindings file.`
   `better-sqlite3` のネイティブバインディングが見つかりません。以下を確認してください
-  - Docker イメージを再ビルドしてください: `docker compose up --build`
+  - Docker イメージを再ビルドしてください: `docker compose down && docker compose up --build`
   - ホスト環境の Node.js バージョンと Docker の Node.js バージョン（22.x）が一致しているか確認してください
   - ローカルで実行する場合は、`pnpm rebuild` を実行してネイティブモジュールを再構築してください
+  - `pnpm install` 直後に `pnpm build` を実行してください
+- チャンネルが作成されない
+  `times-<username>` チャンネルが自動作成されない場合、ログを確認してください
+  - `event: "channel_creation_starting"` ログで、channel name と category ID が正しいか確認
+  - `event: "channel_created"` ログがない場合は、以下の権限を確認してください：
+    - Bot に対して: `Manage Channels`, `View Channels` 権限
+    - TIMES_CATEGORY_ID カテゴリに対して: 上記と同じ権限、さらに `Send Messages` 権限
+  - Bot のロール が category の権限より上にあるか確認してください
+  - `event: "user_registration_failed"` ログに詳細なエラーが出ている場合、その内容を確認

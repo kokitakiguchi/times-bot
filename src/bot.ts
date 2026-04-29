@@ -6,6 +6,7 @@ import {
   type ClientOptions,
   type GuildBasedChannel,
   type GuildTextBasedChannel,
+  type CategoryChannel,
   type Message,
 } from "discord.js";
 
@@ -23,7 +24,7 @@ export interface ResolvedRuntime {
   timesCategoryId: string;
   timesDbPath: string;
   sourceChannel: GuildTextBasedChannel;
-  timesCategory: any;
+  timesCategory: CategoryChannel;
   store: any;
 }
 
@@ -71,7 +72,7 @@ export async function resolveRuntime(
     timesCategoryId: timesCategory.id,
     timesDbPath: config.timesDbPath,
     sourceChannel,
-    timesCategory,
+    timesCategory: timesCategory as CategoryChannel,
     store,
   };
 }
@@ -102,13 +103,33 @@ export async function handleIncomingMessage(
   if (!destinationChannelId) {
     try {
       // Create destination channel
-      const channelName = sanitizeUsername(message.author.username);
+      const sanitized = sanitizeUsername(message.author.username);
+      const baseChannelName = sanitized && sanitized.length > 0 
+        ? `times-${sanitized}`
+        : `times-${message.author.username}-${message.author.id.slice(-6)}`;
+      
+      logger.info({
+        event: "channel_creation_starting",
+        userId: message.author.id,
+        username: message.author.username,
+        sanitized,
+        channelName: baseChannelName,
+        categoryId: runtime.timesCategoryId,
+      });
+
       const destinationChannel = await runtime.timesCategory.children.create({
-        name: channelName || `times-${message.author.username}-${message.author.id.slice(-6)}`,
+        name: baseChannelName,
         type: ChannelType.GuildText,
       });
 
       destinationChannelId = destinationChannel.id;
+
+      logger.info({
+        event: "channel_created",
+        userId: message.author.id,
+        channelId: destinationChannelId,
+        channelName: destinationChannel.name,
+      });
 
       // Register user in DB
       runtime.store.upsertUser({
@@ -130,9 +151,15 @@ export async function handleIncomingMessage(
     } catch (error) {
       logger.error({
         event: "user_registration_failed",
-        err: error,
+        err: error instanceof Error ? {
+          type: error.constructor.name,
+          message: error.message,
+          code: (error as any).code,
+          requestData: (error as any).requestData,
+        } : error,
         userId: message.author.id,
         username: message.author.username,
+        categoryId: runtime.timesCategoryId,
       });
       return;
     }
@@ -184,10 +211,15 @@ export async function handleIncomingMessage(
 
 function sanitizeUsername(username: string): string {
   // Keep only alphanumeric and hyphens, lowercase
-  return username
+  // Discord channel names must be 1-100 characters, no spaces, lowercase
+  const sanitized = username
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/^-+|-+$/g, ""); // Remove leading/trailing hyphens
+    .replace(/[^a-z0-9-_]/g, "") // Keep alphanumeric, hyphens, and underscores
+    .replace(/^-+|-+$/g, "") // Remove leading/trailing hyphens
+    .replace(/_+/g, "-") // Convert underscores to hyphens for consistency
+    .substring(0, 90); // Leave room for "times-" and suffix
+  
+  return sanitized;
 }
 
 function createMessageSnapshot(message: Message): MessageSnapshot {
