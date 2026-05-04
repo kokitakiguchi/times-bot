@@ -87,14 +87,8 @@ export function decideForward(
   const routes = runtime.routesByUserId ?? new Map();
   const route = routes.get(message.authorId);
 
-  if (!route) {
-    return {
-      kind: "skip",
-      reason: "unregistered_user",
-    };
-  }
-
-  if (route.enabled === false) {
+  // Skip only if route is explicitly disabled
+  if (route && route.enabled === false) {
     return {
       kind: "skip",
       reason: "disabled_route",

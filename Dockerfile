@@ -1,39 +1,36 @@
-FROM node:22-slim AS base
+FROM node:22-slim AS builder
 WORKDIR /app
+
 RUN corepack enable
 
-# Install build dependencies for better-sqlite3
-FROM base AS deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    make \
-    g++ \
+    python3 make g++ build-essential \
     && rm -rf /var/lib/apt/lists/*
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
 
-FROM deps AS build
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# モノレポの場合、ワークスペースのpackage.jsonも先にコピー
+# COPY packages/*/package.json ./packages/
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm rebuild better-sqlite3  # ← 汎用 rebuild より明示的
+
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN pnpm build
 
-FROM base AS runtime
-# Install only runtime dependencies for better-sqlite3
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    make \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
+# --- ランタイムステージ ---
+FROM node:22-slim
+WORKDIR /app
+
+RUN corepack enable
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./
+
 ENV NODE_ENV=production
-COPY package.json pnpm-lock.yaml ./
-# Copy pre-built node_modules from deps stage to avoid rebuild issues
-COPY --from=deps /app/node_modules ./node_modules
-# Only install production dependencies (already have better-sqlite3 built)
-RUN pnpm prune --prod
-COPY --from=build /app/dist ./dist
-# Runtime configuration is provided from the host via docker compose.
 COPY env.example ./env.example
 COPY routes.example.yaml ./routes.example.yaml
-# Create data directory for SQLite database
 RUN mkdir -p data
+
 CMD ["node", "dist/index.js"]
