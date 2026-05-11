@@ -52,7 +52,7 @@ export function parseEnvConfig(
   env: Record<string, string | undefined>,
 ): Pick<
   AppConfig,
-  "discordToken" | "guildId" | "enableMessageContentIntent" | "timesCategoryId" | "timesDbPath"
+  "discordToken" | "guildId" | "enableMessageContentIntent" | "timesCategoryId" | "timesDbPath" | "timesAggregateChannelId"
 > {
   const discordToken = readRequiredString(env.DISCORD_TOKEN, "DISCORD_TOKEN");
   const guildId = readSnowflake(env.GUILD_ID, "GUILD_ID");
@@ -69,6 +69,10 @@ export function parseEnvConfig(
     env.TIMES_DB_PATH,
     DEFAULT_TIMES_DB_PATH,
   );
+  const timesAggregateChannelId = readOptionalSnowflake(
+    env.TIMES_AGGREGATE_CHANNEL_ID,
+    "TIMES_AGGREGATE_CHANNEL_ID",
+  );
 
   return {
     discordToken,
@@ -76,6 +80,7 @@ export function parseEnvConfig(
     enableMessageContentIntent,
     timesCategoryId,
     timesDbPath,
+    ...(timesAggregateChannelId !== undefined ? { timesAggregateChannelId } : {}),
   };
 }
 
@@ -156,6 +161,14 @@ function readSnowflake(value: unknown, label: string): string {
   }
 
   return normalized;
+}
+
+function readOptionalSnowflake(value: unknown, label: string): string | undefined {
+  if (value === undefined || value === "") {
+    return undefined;
+  }
+
+  return readSnowflake(value, label);
 }
 
 function readBooleanString(

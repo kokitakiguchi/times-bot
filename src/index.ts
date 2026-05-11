@@ -1,6 +1,6 @@
 import { Client, Events } from "discord.js";
 
-import { createClientOptions, handleIncomingMessage, resolveRuntime } from "./bot.js";
+import { createClientOptions, handleIncomingMessage, handleAggregateForward, resolveRuntime } from "./bot.js";
 import { loadAppConfig } from "./config.js";
 import { logger } from "./logger.js";
 
@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     }
 
     void handleIncomingMessage(message, runtime, logger);
+    void handleAggregateForward(message, runtime, logger);
   });
 
   await client.login(config.discordToken);

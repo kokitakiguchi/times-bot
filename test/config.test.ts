@@ -141,6 +141,73 @@ describe("loadAppConfig", () => {
       'DISCORD_ENABLE_MESSAGE_CONTENT_INTENT must be "true" or "false" when provided.',
     );
   });
+
+  it("loads TIMES_AGGREGATE_CHANNEL_ID when provided", async () => {
+    const cwd = await createTempProject();
+
+    await writeFile(
+      path.join(cwd, ".env"),
+      [
+        "DISCORD_TOKEN=test-token",
+        "GUILD_ID=123456789012345678",
+        "TIMES_CATEGORY_ID=123456789012345699",
+        "TIMES_AGGREGATE_CHANNEL_ID=111222333444555666",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      path.join(cwd, "routes.yaml"),
+      'sourceChannelId: "223456789012345678"\n',
+      "utf8",
+    );
+
+    const config = await loadAppConfig({ cwd, baseEnv: {} });
+
+    expect(config.timesAggregateChannelId).toBe("111222333444555666");
+  });
+
+  it("omits timesAggregateChannelId when not set", async () => {
+    const cwd = await createTempProject();
+
+    await writeFile(
+      path.join(cwd, ".env"),
+      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\nTIMES_CATEGORY_ID=123456789012345699\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(cwd, "routes.yaml"),
+      'sourceChannelId: "223456789012345678"\n',
+      "utf8",
+    );
+
+    const config = await loadAppConfig({ cwd, baseEnv: {} });
+
+    expect(config.timesAggregateChannelId).toBeUndefined();
+  });
+
+  it("fails when TIMES_AGGREGATE_CHANNEL_ID is not a valid snowflake", async () => {
+    const cwd = await createTempProject();
+
+    await writeFile(
+      path.join(cwd, ".env"),
+      [
+        "DISCORD_TOKEN=test-token",
+        "GUILD_ID=123456789012345678",
+        "TIMES_CATEGORY_ID=123456789012345699",
+        "TIMES_AGGREGATE_CHANNEL_ID=not-a-snowflake",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      path.join(cwd, "routes.yaml"),
+      'sourceChannelId: "223456789012345678"\n',
+      "utf8",
+    );
+
+    await expect(loadAppConfig({ cwd, baseEnv: {} })).rejects.toThrow(
+      "TIMES_AGGREGATE_CHANNEL_ID must be a valid Discord snowflake.",
+    );
+  });
 });
 
 async function createTempProject(): Promise<string> {

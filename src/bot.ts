@@ -2,6 +2,7 @@ import type { Logger } from "pino";
 import {
   GatewayIntentBits,
   ChannelType,
+  EmbedBuilder,
   type Client,
   type ClientOptions,
   type GuildBasedChannel,
@@ -25,6 +26,7 @@ export interface ResolvedRuntime {
   timesDbPath: string;
   sourceChannel: GuildTextBasedChannel;
   timesCategory: CategoryChannel;
+  timesAggregateChannel?: GuildTextBasedChannel;
   store: any;
 }
 
@@ -66,6 +68,17 @@ export async function resolveRuntime(
 
   const store = await initializeTimes(config.timesDbPath);
 
+  let timesAggregateChannel: GuildTextBasedChannel | undefined;
+  if (config.timesAggregateChannelId) {
+    const aggregateChannel = await guild.channels.fetch(config.timesAggregateChannelId);
+    if (!aggregateChannel?.isTextBased()) {
+      throw new Error(
+        `TIMES_AGGREGATE_CHANNEL_ID ${config.timesAggregateChannelId} is not a text-based channel in guild ${config.guildId}.`,
+      );
+    }
+    timesAggregateChannel = aggregateChannel as GuildTextBasedChannel;
+  }
+
   return {
     guildId: guild.id,
     sourceChannelId: sourceChannel.id,
@@ -73,6 +86,7 @@ export async function resolveRuntime(
     timesDbPath: config.timesDbPath,
     sourceChannel,
     timesCategory: timesCategory as CategoryChannel,
+    ...(timesAggregateChannel !== undefined ? { timesAggregateChannel } : {}),
     store,
   };
 }
@@ -207,6 +221,79 @@ export async function handleIncomingMessage(
       destinationChannelId,
     });
   }
+}
+
+export async function handleAggregateForward(
+  message: Message,
+  runtime: ResolvedRuntime,
+  logger: Logger,
+): Promise<void> {
+  if (!runtime.timesAggregateChannel) return;
+
+  if (
+    message.channel.type !== ChannelType.GuildText ||
+    message.channel.parentId !== runtime.timesCategoryId
+  ) {
+    return;
+  }
+
+  if (message.author.bot || message.webhookId !== null) return;
+
+  const content = message.content.trim();
+  const hasAttachments = message.attachments.size > 0;
+
+  if (content === "" && !hasAttachments) return;
+
+  const embed = new EmbedBuilder()
+    .setAuthor({
+      name: message.member?.displayName ?? message.author.username,
+      iconURL: message.author.displayAvatarURL(),
+    })
+    .setColor(userColorFromId(message.author.id))
+    .setTimestamp(message.createdAt);
+
+  const descriptionParts: string[] = [];
+  if (content !== "") descriptionParts.push(content);
+  descriptionParts.push(`<#${message.channelId}>`);
+  embed.setDescription(descriptionParts.join("\n\n"));
+
+  const files = message.attachments.map((a) => ({
+    attachment: a.url,
+    ...(a.name ? { name: a.name } : {}),
+  }));
+
+  try {
+    await runtime.timesAggregateChannel.send({
+      embeds: [embed],
+      files,
+      allowedMentions: { parse: [] },
+    });
+
+    logger.info({
+      event: "aggregate_forwarded",
+      messageId: message.id,
+      authorId: message.author.id,
+      sourceChannelId: message.channelId,
+      aggregateChannelId: runtime.timesAggregateChannel.id,
+    });
+  } catch (error) {
+    logger.error({
+      event: "aggregate_forward_failed",
+      err: error,
+      messageId: message.id,
+      authorId: message.author.id,
+      sourceChannelId: message.channelId,
+    });
+  }
+}
+
+function userColorFromId(userId: string): number {
+  let hash = 0;
+  for (const char of userId) {
+    hash = (hash << 5) - hash + char.charCodeAt(0);
+    hash |= 0;
+  }
+  return Math.abs(hash) % 0xffffff;
 }
 
 function sanitizeUsername(username: string): string {

@@ -8,6 +8,7 @@ Discord server 内の特定チャンネルに投稿したユーザーのメッ�
 - **自動チャンネル作成**: ユーザー初回投稿時に `times-<username>` という専用チャンネルが自動作成されます
 - **メッセージ永続化**: すべてのメッセージを SQLite に保存し、編集・削除の履歴も記録します
 - **ユーザー情報スナップショット**: username や displayName の変更を追跡しつつ、チャンネル名は固定に保ちます
+- **タイムライン集約**: 各 times チャンネルへの投稿を1つの集約チャンネルにまとめて表示します（オプション）
 
 ## 最短手順
 
@@ -50,6 +51,11 @@ Compose は手元の `.env` を `env_file` で読み込み、`routes.yaml` を `
   - `false` を設定すると起動エラーになります
 - `TIMES_DB_PATH` (デフォルト: `data/times.sqlite`)
   - SQLite ファイルの保存先パス
+- `TIMES_AGGREGATE_CHANNEL_ID` (省略可)
+  - 全 times チャンネルの投稿を集約して表示するチャンネルのID
+  - 設定すると、各 `times-<username>` チャンネルへの投稿が Embed 形式でこのチャンネルにも転送されます
+  - Embed にはアバター・表示名・投稿元チャンネルへのリンク・タイムスタンプが含まれます
+  - 未設定の場合、集約機能は無効になります
 
 ### routes.yaml
 
@@ -67,6 +73,8 @@ GUILD_ID=123456789012345678
 TIMES_CATEGORY_ID=987654321098765432
 DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=true
 TIMES_DB_PATH=data/times.sqlite
+# 集約チャンネルを使う場合のみ設定
+TIMES_AGGREGATE_CHANNEL_ID=111222333444555666
 ```
 
 `routes.yaml` の例:
@@ -160,6 +168,9 @@ pnpm start
 - 本文が空でも添付ファイルがあれば転送される
 - `enabled: false` のルートは転送されない
 - `DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=false` の場合、Botは起動できるが本文の転送は制限される可能性がある
+- `TIMES_AGGREGATE_CHANNEL_ID` を設定した場合、各 times チャンネルへの投稿が集約チャンネルに Embed で表示される
+  - Embed 内のチャンネルリンクをクリックすると投稿元チャンネルに飛べる
+  - ユーザーごとに異なる色で表示される
 
 ## よくある詰まりどころ
 

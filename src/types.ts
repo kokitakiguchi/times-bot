@@ -7,6 +7,7 @@ export interface AppConfig {
   sourceChannelId: Snowflake;
   timesCategoryId: Snowflake;
   timesDbPath: string;
+  timesAggregateChannelId?: Snowflake;
 }
 
 export interface ForwardAttachment {
