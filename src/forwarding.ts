@@ -1,12 +1,27 @@
 import type {
   ForwardFile,
-  ForwardingRuntime,
   ForwardPayload,
   MessageSnapshot,
   RouteConfig,
 } from "./types.js";
 
 const MENTION_PATTERN = /<@!?\d+>|<@&\d+>|<#\d+>|@everyone|@here/g;
+
+export type MessageSkipReason =
+  | "not_in_guild"
+  | "wrong_guild"
+  | "wrong_channel"
+  | "bot_author"
+  | "webhook_message"
+  | "empty_after_sanitization"
+  | "unregistered_user"
+  | "disabled_route";
+
+export interface ForwardingRuntime {
+  guildId: string;
+  sourceChannelId: string;
+  routesByUserId?: Map<string, RouteConfig>;
+}
 
 export function sanitizeContent(content: string): string {
   return content
@@ -18,78 +33,88 @@ export function sanitizeContent(content: string): string {
     .trim();
 }
 
-export function decideForward<T extends RouteConfig>(
+export type DecideForwardResult =
+  | { kind: "skip"; reason: MessageSkipReason }
+  | {
+      kind: "forward";
+      route: RouteConfig & { channel?: any };
+      sanitizedContent: string;
+      payload: ForwardPayload;
+      hasAttachments: boolean;
+    };
+
+export function decideForward(
   message: MessageSnapshot,
-  runtime: ForwardingRuntime<T>,
-) {
+  runtime: ForwardingRuntime,
+): DecideForwardResult {
+  // Basic validation
   if (message.guildId === null) {
     return {
-      kind: "skip" as const,
-      reason: "not_in_guild" as const,
+      kind: "skip",
+      reason: "not_in_guild",
     };
   }
 
   if (message.guildId !== runtime.guildId) {
     return {
-      kind: "skip" as const,
-      reason: "wrong_guild" as const,
+      kind: "skip",
+      reason: "wrong_guild",
     };
   }
 
   if (message.channelId !== runtime.sourceChannelId) {
     return {
-      kind: "skip" as const,
-      reason: "wrong_channel" as const,
+      kind: "skip",
+      reason: "wrong_channel",
     };
   }
 
   if (message.authorBot) {
     return {
-      kind: "skip" as const,
-      reason: "bot_author" as const,
+      kind: "skip",
+      reason: "bot_author",
     };
   }
 
   if (message.webhookId !== null) {
     return {
-      kind: "skip" as const,
-      reason: "webhook_message" as const,
+      kind: "skip",
+      reason: "webhook_message",
     };
   }
 
-  const route = runtime.routesByUserId.get(message.authorId);
+  // Check if user is registered (old routes-based approach)
+  const routes = runtime.routesByUserId ?? new Map();
+  const route = routes.get(message.authorId);
 
-  if (!route) {
+  // Skip only if route is explicitly disabled
+  if (route && route.enabled === false) {
     return {
-      kind: "skip" as const,
-      reason: "no_route" as const,
+      kind: "skip",
+      reason: "disabled_route",
     };
   }
 
-  if (!route.enabled) {
-    return {
-      kind: "skip" as const,
-      reason: "route_disabled" as const,
-    };
-  }
-
+  // Build forward request
   const sanitizedContent = sanitizeContent(message.content);
   const files = buildForwardFiles(message.attachments);
 
   if (sanitizedContent === "" && files.length === 0) {
     return {
-      kind: "skip" as const,
-      reason: "empty_after_sanitization" as const,
+      kind: "skip",
+      reason: "empty_after_sanitization",
     };
   }
 
   return {
-    kind: "forward" as const,
+    kind: "forward",
     route,
     sanitizedContent,
     payload: buildForwardPayload(sanitizedContent, files),
+    hasAttachments: files.length > 0,
   };
 }
+
 
 export function buildForwardPayload(
   content: string,

@@ -1,12 +1,20 @@
 # times-bot
 
-Discord server内の特定チャンネルで、特定ユーザーの投稿だけを別チャンネルへ転送するBotです。
+Discord server 内の特定チャンネルに投稿したユーザーのメッセージを自動的に個人用の `times-<username>` チャンネルに転送し、SQLite で永続化する Bot です。
+
+## 特徴
+
+- **自動ユーザー登録**: `sourceChannelId` に投稿したユーザーは自動的に登録されます
+- **自動チャンネル作成**: ユーザー初回投稿時に `times-<username>` という専用チャンネルが自動作成されます
+- **メッセージ永続化**: すべてのメッセージを SQLite に保存し、編集・削除の履歴も記録します
+- **ユーザー情報スナップショット**: username や displayName の変更を追跡しつつ、チャンネル名は固定に保ちます
+- **タイムライン集約**: 各 times チャンネルへの投稿を1つの集約チャンネルにまとめて表示します（オプション）
 
 ## 最短手順
 
 1. `env.example` をコピーして `.env` を作る
 2. `routes.example.yaml` をコピーして `routes.yaml` を作る
-3. 各IDとトークンを埋める
+3. 各ID、トークン、カテゴリを埋める
 4. Docker Compose が使える環境で `docker compose up --build` を実行する
 
 ```bash
@@ -15,46 +23,91 @@ cp routes.example.yaml routes.yaml
 docker compose up --build
 ```
 
-Compose は手元の `.env` を `env_file` で読み込み、`routes.yaml` を `/app/routes.yaml` に read-only mount して起動します。秘密情報はイメージに焼き込まれません。
+Compose は手元の `.env` を `env_file` で読み込み、`routes.yaml` を `/app/routes.yaml` に read-only mount して起動します。SQLite ファイル（デフォルト `data/times.sqlite`）は volume を通じて永続化されます。秘密情報はイメージに焼き込まれません。
 
 ## 設定するもの
 
 実際に動かすには、次の情報を自分で用意します。
 
-- `DISCORD_TOKEN`
-  Discord Developer Portalで作成したBotのトークン
-- `GUILD_ID`
-  Botを動かすDiscordサーバーのID
-- `sourceChannelId`
-  監視元チャンネルのID
-- `routes[].userId`
-  転送対象ユーザーのID
-- `routes[].destinationChannelId`
-  そのユーザーの転送先チャンネルID
+### 必須環境変数 (`.env`)
 
-IDを調べるには、Discordの `詳細設定 > 開発者モード` をONにして、サーバー・チャンネル・ユーザーを右クリックし `IDをコピー` を使います。
+- `DISCORD_TOKEN`
+  - Discord Developer Portal で作成した Bot のトークン
+- `GUILD_ID`
+  - Bot を動かす Discord サーバーのID
+- `TIMES_CATEGORY_ID`
+  - 自動作成される `times-<username>` チャンネルを配置するカテゴリID
+  - カテゴリに対して以下の権限が必要です
+    - Manage Channels (チャンネル作成)
+    - View Channels (チャンネル閲覧)
+    - Send Messages (メッセージ送信)
+    - Attach Files (ファイル添付)
+
+### オプション環境変数
+
+- `DISCORD_ENABLE_MESSAGE_CONTENT_INTENT` (デフォルト: `true`)
+  - メッセージ本文を転送するかどうか
+  - SQLite による永続化を行う都合上、`true` が必須です
+  - `false` を設定すると起動エラーになります
+- `TIMES_DB_PATH` (デフォルト: `data/times.sqlite`)
+  - SQLite ファイルの保存先パス
+- `TIMES_AGGREGATE_CHANNEL_ID` (省略可)
+  - 全 times チャンネルの投稿を集約して表示するチャンネルのID
+  - 設定すると、各 `times-<username>` チャンネルへの投稿が Embed 形式でこのチャンネルにも転送されます
+  - Embed にはアバター・表示名・投稿元チャンネルへのリンク・タイムスタンプが含まれます
+  - 未設定の場合、集約機能は無効になります
+
+### routes.yaml
+
+- `sourceChannelId`: 監視対象チャンネルの ID
+  - テキストチャンネルまたはスレッドのみ対応
+  - forum/media 親チャンネルは非対応です（起動時にエラーになります）
+
+IDを調べるには、Discord の `詳細設定 > 開発者モード` をONにして、サーバー・チャンネル・ユーザーを右クリックし `IDをコピー` を使います。
 
 `.env` の例:
 
 ```env
 DISCORD_TOKEN=your_bot_token_here
 GUILD_ID=123456789012345678
+TIMES_CATEGORY_ID=987654321098765432
 DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=true
+TIMES_DB_PATH=data/times.sqlite
+# 集約チャンネルを使う場合のみ設定
+TIMES_AGGREGATE_CHANNEL_ID=111222333444555666
 ```
-
-`DISCORD_ENABLE_MESSAGE_CONTENT_INTENT` は通常 `true` のままで構いません。Developer Portal 側で Message Content Intent を有効化できない暫定確認だけ `false` を使います。その場合は本文転送が制限される可能性があります。
 
 `routes.yaml` の例:
 
 ```yaml
 sourceChannelId: "123456789012345678"
-routes:
-  - userId: "111111111111111111"
-    destinationChannelId: "222222222222222222"
-    enabled: true
 ```
 
-雛形として [env.example](/workspaces/times-bot/env.example) と [routes.example.yaml](/workspaces/times-bot/routes.example.yaml) があります。
+雛形として [env.example](env.example) と [routes.example.yaml](routes.example.yaml) があります。
+
+## 自動登録フロー
+
+1. ユーザーが `sourceChannelId` のチャンネルにメッセージを投稿します
+2. Bot は投稿を検出し、DB にユーザー情報を記録します
+3. `TIMES_CATEGORY_ID` 配下に `times-<sanitized_username>` という新しいテキストチャンネルを作成します
+4. 元のメッセージを転送先チャンネルに送信し、DB に記録します
+5. 以降、同じユーザーの投稿はすべて同じ転送先チャンネルに送信されます
+
+## メッセージ履歴の管理
+
+- **作成**: メッセージが投稿されるたびに DB に記録されます
+- **編集**: Source channel でメッセージが編集されると、DB の `source_edited_at` と `content` が更新されます（転送先メッセージは更新されません）
+- **削除**: Source channel でメッセージが削除されると、DB に `source_deleted_at` が記録されます（転送先メッセージは削除されません）
+
+添付ファイルは転送時に Discord CDN からダウンロードされて転送先に添付されますが、DB には本文のみ保存されます。`has_attachments` フラグで「このメッセージには添付があった」ことを追跡できます。
+
+## ユーザーとチャンネル名について
+
+- ユーザー初回投稿時に `times-<sanitized_username>` という形式でチャンネルが作成されます
+- Username に特殊文字が含まれる場合は、英数字とハイフンのみの形式に sanitize されます
+- Sanitize 後に空になるか、既に同じ名前のチャンネルが存在する場合は `times-<username>-<userId末尾6桁>` にフォールバックします
+- ユーザーが Discord 上で username を変更しても、**チャンネル名は変わりません** （既に作成されたチャンネルを rename しないため）
+- DB 上の username と displayName は最新の値に更新されます
 
 ## Dockerで実行する
 
@@ -79,10 +132,14 @@ docker compose down
 Botを作成したら、少なくとも次を確認してください。
 
 - Developer Portalの `Bot` 設定で `Message Content Intent` を有効化する
-- Botを対象サーバーに招待する
-- 監視元チャンネルでBotがメッセージを読めるようにする
-- 転送先チャンネルでBotが送信できるようにする
-- 添付ファイルも転送したい場合は、転送先で `Attach Files` 権限も付与する
+- Botを対象サーバーに招待する（権限には `Manage Channels`, `View Channels`, `Send Messages`, `Attach Files` を含める）
+- 監視元チャンネル（`sourceChannelId`）でBotがメッセージを読めるようにする
+- TIMES_CATEGORY_ID カテゴリで以下の権限を付与する
+  - Manage Channels: 自動チャンネル作成に必須
+  - View Channels: チャンネル閲覧に必須
+  - Send Messages: メッセージ送信に必須
+  - Attach Files: ファイル転送が必要な場合に必須
+- Bot のロールがカテゴリの権限設定より上位にあることを確認（ロールの順序が重要）
 
 このBotはコード上で次のIntentを使っています。
 
@@ -111,6 +168,9 @@ pnpm start
 - 本文が空でも添付ファイルがあれば転送される
 - `enabled: false` のルートは転送されない
 - `DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=false` の場合、Botは起動できるが本文の転送は制限される可能性がある
+- `TIMES_AGGREGATE_CHANNEL_ID` を設定した場合、各 times チャンネルへの投稿が集約チャンネルに Embed で表示される
+  - Embed 内のチャンネルリンクをクリックすると投稿元チャンネルに飛べる
+  - ユーザーごとに異なる色で表示される
 
 ## よくある詰まりどころ
 
@@ -126,3 +186,17 @@ pnpm start
   フォーラムや対象外チャンネルを指定している可能性があります
 - `destinationChannelId ... is not a sendable text channel`
   転送先が送信可能なテキストチャンネルではないか、Bot権限が不足しています
+- `Could not locate the bindings file.`
+  `better-sqlite3` のネイティブバインディングが見つかりません。以下を確認してください
+  - Docker イメージを再ビルドしてください: `docker compose down && docker compose up --build`
+  - ホスト環境の Node.js バージョンと Docker の Node.js バージョン（22.x）が一致しているか確認してください
+  - ローカルで実行する場合は、`pnpm rebuild` を実行してネイティブモジュールを再構築してください
+  - `pnpm install` 直後に `pnpm build` を実行してください
+- チャンネルが作成されない
+  `times-<username>` チャンネルが自動作成されない場合、ログを確認してください
+  - `event: "channel_creation_starting"` ログで、channel name と category ID が正しいか確認
+  - `event: "channel_created"` ログがない場合は、以下の権限を確認してください：
+    - Bot に対して: `Manage Channels`, `View Channels` 権限
+    - TIMES_CATEGORY_ID カテゴリに対して: 上記と同じ権限、さらに `Send Messages` 権限
+  - Bot のロール が category の権限より上にあるか確認してください
+  - `event: "user_registration_failed"` ログに詳細なエラーが出ている場合、その内容を確認

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { decideForward, sanitizeContent } from "../src/forwarding.js";
-import type { ForwardingRuntime, MessageSnapshot, RouteConfig } from "../src/types.js";
+import type { ForwardingRuntime } from "../src/forwarding.js";
+import type { MessageSnapshot, RouteConfig } from "../src/types.js";
 
 describe("sanitizeContent", () => {
   it("removes mentions and trims whitespace", () => {
@@ -121,14 +122,9 @@ describe("decideForward", () => {
       "wrong_channel",
     ],
     [
-      "unregistered user",
-      createMessage({ authorId: "999999999999999999" }),
-      "no_route",
-    ],
-    [
       "disabled route",
       createMessage({ authorId: "523456789012345678" }),
-      "route_disabled",
+      "disabled_route",
     ],
     [
       "bot author",
@@ -159,15 +155,34 @@ describe("decideForward", () => {
       reason,
     });
   });
+
+  it("forwards unregistered users (new user registration)", () => {
+    const runtime = createRuntime([
+      {
+        userId: "323456789012345678",
+        destinationChannelId: "423456789012345678",
+        enabled: true,
+      },
+    ]);
+    const decision = decideForward(
+      createMessage({
+        authorId: "999999999999999999", // unregistered user
+        content: "hello world",
+      }),
+      runtime,
+    );
+
+    expect(decision.kind).toBe("forward");
+  });
 });
 
 function createRuntime(
   routes: RouteConfig[],
-): ForwardingRuntime<RouteConfig> {
+): ForwardingRuntime {
   return {
     guildId: "123456789012345678",
     sourceChannelId: "223456789012345678",
-    routesByUserId: new Map(routes.map((route) => [route.userId, route])),
+    routesByUserId: new Map(routes.flatMap((route) => route.userId ? [[route.userId, route] as [string, RouteConfig]] : [])),
   };
 }
 

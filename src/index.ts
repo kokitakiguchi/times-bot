@@ -1,6 +1,6 @@
 import { Client, Events } from "discord.js";
 
-import { createClientOptions, handleIncomingMessage, resolveRuntime } from "./bot.js";
+import { createClientOptions, handleIncomingMessage, handleAggregateForward, resolveRuntime } from "./bot.js";
 import { loadAppConfig } from "./config.js";
 import { logger } from "./logger.js";
 
@@ -26,7 +26,7 @@ async function main(): Promise<void> {
           event: "bot_ready",
           guildId: runtime.guildId,
           sourceChannelId: runtime.sourceChannelId,
-          routeCount: runtime.routesByUserId.size,
+          timesCategoryId: runtime.timesCategoryId,
         });
       } catch (error) {
         logger.error({
@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     }
 
     void handleIncomingMessage(message, runtime, logger);
+    void handleAggregateForward(message, runtime, logger);
   });
 
   await client.login(config.discordToken);
@@ -111,14 +112,14 @@ function normalizeAppError(error: unknown): Error {
 
   if (hasDiscordApiCode(error, 10003) || hasErrorMessage(error, "Unknown Channel")) {
     return new Error(
-      "Unknown Channel. Check sourceChannelId and destinationChannelId in routes.yaml, and make sure the bot can access those channels.",
+      "Unknown Channel. Check sourceChannelId and TIMES_CATEGORY_ID in .env, and make sure the bot can access those channels.",
       { cause: error instanceof Error ? error : undefined },
     );
   }
 
   if (hasDiscordApiCode(error, 50001) || hasErrorMessage(error, "Missing Access")) {
     return new Error(
-      "Missing Access. Make sure the bot can read the source channel and send messages to each destination channel.",
+      "Missing Access. Make sure the bot can read the source channel and manage channels/send messages in the TIMES_CATEGORY_ID category.",
       { cause: error instanceof Error ? error : undefined },
     );
   }

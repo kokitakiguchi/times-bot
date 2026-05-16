@@ -1,5 +1,5 @@
-sourceChannelId: "123"
-routes:
-  - userId: "111"
-    destinationChannelId: "222"
-    enabled: true
+# Specify the source channel ID where the bot monitors for messages.
+# The bot will automatically register users who post in this channel and create 
+# a dedicated times-<username> channel for each user in TIMES_CATEGORY_ID.
+# Only text channels and threads are supported; forum/media parent channels are not allowed.
+sourceChannelId: "123456789012345678"

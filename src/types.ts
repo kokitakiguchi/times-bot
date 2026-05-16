@@ -1,17 +1,13 @@
 export type Snowflake = string;
 
-export interface RouteConfig {
-  userId: Snowflake;
-  destinationChannelId: Snowflake;
-  enabled: boolean;
-}
-
 export interface AppConfig {
   discordToken: string;
   guildId: Snowflake;
   enableMessageContentIntent: boolean;
   sourceChannelId: Snowflake;
-  routes: RouteConfig[];
+  timesCategoryId: Snowflake;
+  timesDbPath: string;
+  timesAggregateChannelId?: Snowflake;
 }
 
 export interface ForwardAttachment {
@@ -43,8 +39,67 @@ export interface ForwardPayload {
   };
 }
 
-export interface ForwardingRuntime<T extends RouteConfig = RouteConfig> {
+export interface ForwardingContext {
   guildId: Snowflake;
   sourceChannelId: Snowflake;
-  routesByUserId: ReadonlyMap<Snowflake, T>;
 }
+
+export interface StoredUser {
+  userId: Snowflake;
+  guildId: Snowflake;
+  username: string;
+  displayName: string | null;
+  destinationChannelId: Snowflake;
+  destinationChannelName: string;
+  isActive: boolean;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertUserInput {
+  userId: Snowflake;
+  guildId: Snowflake;
+  username: string;
+  displayName: string | null;
+  destinationChannelId: Snowflake;
+  destinationChannelName: string;
+  seenAt: string;
+}
+
+export interface StoredMessage {
+  sourceMessageId: Snowflake;
+  userId: Snowflake;
+  guildId: Snowflake;
+  sourceChannelId: Snowflake;
+  destinationChannelId: Snowflake;
+  forwardedMessageId: Snowflake;
+  content: string;
+  hasAttachments: boolean;
+  sourceCreatedAt: string;
+  sourceEditedAt: string | null;
+  sourceDeletedAt: string | null;
+  recordCreatedAt: string;
+  recordUpdatedAt: string;
+}
+
+export interface SaveMessageInput {
+  sourceMessageId: Snowflake;
+  userId: Snowflake;
+  guildId: Snowflake;
+  sourceChannelId: Snowflake;
+  destinationChannelId: Snowflake;
+  forwardedMessageId: Snowflake;
+  content: string;
+  hasAttachments: boolean;
+  sourceCreatedAt: string;
+  recordedAt: string;
+}
+
+export interface RouteConfig {
+  userId?: string;
+  destinationChannelId?: string;
+  enabled?: boolean;
+}
+
