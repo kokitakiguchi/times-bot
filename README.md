@@ -9,6 +9,7 @@ Discord server 内の特定チャンネルに投稿したユーザーのメッ�
 - **メッセージ永続化**: すべてのメッセージを SQLite に保存し、編集・削除の履歴も記録します
 - **ユーザー情報スナップショット**: username や displayName の変更を追跡しつつ、チャンネル名は固定に保ちます
 - **タイムライン集約**: 各 times チャンネルへの投稿を1つの集約チャンネルにまとめて表示します（オプション）
+- **ロールベースカテゴリ振り分け**: ユーザーの Discord ロールに応じて、チャンネルを配置するカテゴリを動的に切り替えられます（オプション）
 
 ## 最短手順
 
@@ -62,6 +63,12 @@ Compose は手元の `.env` を `env_file` で読み込み、`routes.yaml` を `
 - `sourceChannelId`: 監視対象チャンネルの ID
   - テキストチャンネルまたはスレッドのみ対応
   - forum/media 親チャンネルは非対応です（起動時にエラーになります）
+- `roleCategoryMappings` (省略可): ロール別のカテゴリ振り分け設定
+  - `roleId`: 振り分けに使う Discord ロールの ID
+  - `categoryId`: 振り分け先カテゴリの ID
+  - リスト上位のエントリが優先されます（ユーザーが複数の対象ロールを持つ場合、最初に一致したエントリが使われます）
+  - 一致するロールがない場合は `TIMES_CATEGORY_ID` にフォールバックします
+  - 省略した場合はすべてのユーザーが `TIMES_CATEGORY_ID` に配置されます（従来どおり）
 
 IDを調べるには、Discord の `詳細設定 > 開発者モード` をONにして、サーバー・チャンネル・ユーザーを右クリックし `IDをコピー` を使います。
 
@@ -77,10 +84,21 @@ TIMES_DB_PATH=data/times.sqlite
 TIMES_AGGREGATE_CHANNEL_ID=111222333444555666
 ```
 
-`routes.yaml` の例:
+`routes.yaml` の例（ロール振り分けなし）:
 
 ```yaml
 sourceChannelId: "123456789012345678"
+```
+
+`routes.yaml` の例（ロール振り分けあり）:
+
+```yaml
+sourceChannelId: "123456789012345678"
+roleCategoryMappings:
+  - roleId: "111111111111111111"   # Engineer ロール
+    categoryId: "222222222222222222"  # Engineering カテゴリ
+  - roleId: "333333333333333333"   # Designer ロール
+    categoryId: "444444444444444444"  # Design カテゴリ
 ```
 
 雛形として [env.example](env.example) と [routes.example.yaml](routes.example.yaml) があります。
@@ -89,9 +107,45 @@ sourceChannelId: "123456789012345678"
 
 1. ユーザーが `sourceChannelId` のチャンネルにメッセージを投稿します
 2. Bot は投稿を検出し、DB にユーザー情報を記録します
-3. `TIMES_CATEGORY_ID` 配下に `times-<sanitized_username>` という新しいテキストチャンネルを作成します
+3. ユーザーのロールと `roleCategoryMappings` を照合してカテゴリを決定します（一致するロールがない場合は `TIMES_CATEGORY_ID` を使用）。決定したカテゴリ配下に `times-<sanitized_username>` という新しいテキストチャンネルを作成します
 4. 元のメッセージを転送先チャンネルに送信し、DB に記録します
 5. 以降、同じユーザーの投稿はすべて同じ転送先チャンネルに送信されます
+
+## ロールベースのカテゴリ振り分け
+
+`routes.yaml` に `roleCategoryMappings` を設定すると、ユーザーが持つ Discord ロールに応じて `times-<username>` チャンネルの配置先カテゴリを自動的に振り分けられます。
+
+### カテゴリ決定ロジック
+
+1. ユーザーの初回投稿時に、Bot がそのメンバーのロール一覧を取得します
+2. `roleCategoryMappings` のエントリを**上から順に**照合します
+3. 最初に一致したエントリの `categoryId` を振り分け先カテゴリとして使います
+4. どのロールも一致しない場合は `TIMES_CATEGORY_ID` にフォールバックします
+
+### 複数ロールを持つユーザーの扱い
+
+ユーザーが `roleCategoryMappings` に登録された複数のロールを同時に持っている場合、**リスト上位のエントリが優先**されます。エントリの並び順で振り分け先を制御できます。
+
+```yaml
+roleCategoryMappings:
+  - roleId: "111111111111111111"   # このロールが最優先
+    categoryId: "222222222222222222"
+  - roleId: "333333333333333333"   # 上記ロールを持たない場合に適用
+    categoryId: "444444444444444444"
+```
+
+### 設定しない場合の動作
+
+`roleCategoryMappings` を省略した場合、すべてのユーザーのチャンネルが `TIMES_CATEGORY_ID` に配置されます。既存の設定に変更は不要です。
+
+### 必要な権限
+
+`roleCategoryMappings` を使う場合、`TIMES_CATEGORY_ID` に加えて**振り分け先カテゴリすべてに**以下の権限を付与してください。
+
+- Manage Channels: チャンネル作成に必須
+- View Channels: チャンネル閲覧に必須
+- Send Messages: メッセージ送信に必須
+- Attach Files: ファイル転送が必要な場合に必須
 
 ## メッセージ履歴の管理
 
@@ -140,6 +194,7 @@ Botを作成したら、少なくとも次を確認してください。
   - Send Messages: メッセージ送信に必須
   - Attach Files: ファイル転送が必要な場合に必須
 - Bot のロールがカテゴリの権限設定より上位にあることを確認（ロールの順序が重要）
+- `roleCategoryMappings` を使う場合は、`TIMES_CATEGORY_ID` に加えて振り分け先カテゴリすべてに上記と同じ権限を付与する
 
 このBotはコード上で次のIntentを使っています。
 
@@ -162,15 +217,18 @@ pnpm start
 
 ## 動作確認のポイント
 
-- `sourceChannelId` のチャンネルで、`routes` に登録したユーザー本人が投稿する
+- `sourceChannelId` のチャンネルにメッセージを投稿すると、未登録ユーザーは自動登録される
 - BotやWebhookの投稿は転送されない
 - メンションは転送時に除去される
 - 本文が空でも添付ファイルがあれば転送される
-- `enabled: false` のルートは転送されない
-- `DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=false` の場合、Botは起動できるが本文の転送は制限される可能性がある
+- `DISCORD_ENABLE_MESSAGE_CONTENT_INTENT=false` の場合、Botは起動エラーになる
 - `TIMES_AGGREGATE_CHANNEL_ID` を設定した場合、各 times チャンネルへの投稿が集約チャンネルに Embed で表示される
   - Embed 内のチャンネルリンクをクリックすると投稿元チャンネルに飛べる
   - ユーザーごとに異なる色で表示される
+- `roleCategoryMappings` を設定した場合
+  - 対象ロールを持つユーザーの初回投稿で、対応カテゴリにチャンネルが作成される
+  - どのロールも持たないユーザーは `TIMES_CATEGORY_ID` にフォールバックされる
+  - ロールを複数持つ場合はリスト上位のエントリが優先される
 
 ## よくある詰まりどころ
 
@@ -200,3 +258,10 @@ pnpm start
     - TIMES_CATEGORY_ID カテゴリに対して: 上記と同じ権限、さらに `Send Messages` 権限
   - Bot のロール が category の権限より上にあるか確認してください
   - `event: "user_registration_failed"` ログに詳細なエラーが出ている場合、その内容を確認
+- `roleCategoryMappings` を設定したのにデフォルトカテゴリに作成される
+  - `roleId` が正しいか確認してください（開発者モードでロールを右クリック → ID をコピー）
+  - ユーザーが該当ロールを実際に持っているか確認してください
+  - リスト上位のエントリが先に一致していないか確認してください
+- ロール振り分け先カテゴリにチャンネルが作成されない
+  - 振り分け先カテゴリに `Manage Channels`, `View Channels`, `Send Messages` 権限が付与されているか確認してください
+  - `categoryId` が有効なカテゴリチャンネルのIDか確認してください

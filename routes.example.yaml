@@ -1,5 +1,16 @@
 # Specify the source channel ID where the bot monitors for messages.
-# The bot will automatically register users who post in this channel and create 
+# The bot will automatically register users who post in this channel and create
 # a dedicated times-<username> channel for each user in TIMES_CATEGORY_ID.
 # Only text channels and threads are supported; forum/media parent channels are not allowed.
 sourceChannelId: "123456789012345678"
+
+# (Optional) Role-based category mappings.
+# When set, the bot checks the user's roles and places their times channel in the
+# matching category instead of TIMES_CATEGORY_ID.
+# Entries are evaluated top-to-bottom; the first match wins.
+# Users with no matching role fall back to TIMES_CATEGORY_ID.
+# roleCategoryMappings:
+#   - roleId: "111111111111111111"      # Role ID (right-click role → Copy ID)
+#     categoryId: "222222222222222222"  # Destination category ID
+#   - roleId: "333333333333333333"
+#     categoryId: "444444444444444444"
