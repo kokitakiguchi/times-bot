@@ -19,6 +19,11 @@ import type {
   MessageSnapshot,
 } from "./types.js";
 
+export interface ResolvedRoleMapping {
+  roleId: string;
+  category: CategoryChannel;
+}
+
 export interface ResolvedRuntime {
   guildId: string;
   sourceChannelId: string;
@@ -27,6 +32,7 @@ export interface ResolvedRuntime {
   sourceChannel: GuildTextBasedChannel;
   timesCategory: CategoryChannel;
   timesAggregateChannel?: GuildTextBasedChannel;
+  resolvedRoleMappings: ResolvedRoleMapping[];
   store: any;
 }
 
@@ -79,6 +85,17 @@ export async function resolveRuntime(
     timesAggregateChannel = aggregateChannel as GuildTextBasedChannel;
   }
 
+  const resolvedRoleMappings: ResolvedRoleMapping[] = [];
+  for (const mapping of config.roleCategoryMappings ?? []) {
+    const ch = await guild.channels.fetch(mapping.categoryId);
+    if (ch?.type !== ChannelType.GuildCategory) {
+      throw new Error(
+        `roleCategoryMappings categoryId ${mapping.categoryId} is not a category channel in guild ${config.guildId}.`,
+      );
+    }
+    resolvedRoleMappings.push({ roleId: mapping.roleId, category: ch as CategoryChannel });
+  }
+
   return {
     guildId: guild.id,
     sourceChannelId: sourceChannel.id,
@@ -87,6 +104,7 @@ export async function resolveRuntime(
     sourceChannel,
     timesCategory: timesCategory as CategoryChannel,
     ...(timesAggregateChannel !== undefined ? { timesAggregateChannel } : {}),
+    resolvedRoleMappings,
     store,
   };
 }
@@ -118,20 +136,22 @@ export async function handleIncomingMessage(
     try {
       // Create destination channel
       const sanitized = sanitizeUsername(message.author.username);
-      const baseChannelName = sanitized && sanitized.length > 0 
+      const baseChannelName = sanitized && sanitized.length > 0
         ? `times-${sanitized}`
         : `times-${message.author.username}-${message.author.id.slice(-6)}`;
-      
+
+      const targetCategory = resolveTargetCategory(message, runtime);
+
       logger.info({
         event: "channel_creation_starting",
         userId: message.author.id,
         username: message.author.username,
         sanitized,
         channelName: baseChannelName,
-        categoryId: runtime.timesCategoryId,
+        categoryId: targetCategory.id,
       });
 
-      const destinationChannel = await runtime.timesCategory.children.create({
+      const destinationChannel = await targetCategory.children.create({
         name: baseChannelName,
         type: ChannelType.GuildText,
       });
@@ -232,7 +252,7 @@ export async function handleAggregateForward(
 
   if (
     message.channel.type !== ChannelType.GuildText ||
-    message.channel.parentId !== runtime.timesCategoryId
+    !isTimesCategory(message.channel.parentId, runtime)
   ) {
     return;
   }
@@ -329,4 +349,30 @@ function isSendableGuildTextChannel(
   channel: GuildBasedChannel | null,
 ): channel is GuildTextBasedChannel {
   return Boolean(channel?.isTextBased() && "send" in channel);
+}
+
+function resolveTargetCategory(
+  message: Message,
+  runtime: ResolvedRuntime,
+): CategoryChannel {
+  if (runtime.resolvedRoleMappings.length === 0 || !message.member) {
+    return runtime.timesCategory;
+  }
+
+  for (const mapping of runtime.resolvedRoleMappings) {
+    if (message.member.roles.cache.has(mapping.roleId)) {
+      return mapping.category;
+    }
+  }
+
+  return runtime.timesCategory;
+}
+
+function isTimesCategory(
+  categoryId: string | null,
+  runtime: ResolvedRuntime,
+): boolean {
+  if (!categoryId) return false;
+  if (categoryId === runtime.timesCategoryId) return true;
+  return runtime.resolvedRoleMappings.some((m) => m.category.id === categoryId);
 }

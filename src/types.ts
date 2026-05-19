@@ -8,6 +8,7 @@ export interface AppConfig {
   timesCategoryId: Snowflake;
   timesDbPath: string;
   timesAggregateChannelId?: Snowflake;
+  roleCategoryMappings?: RoleCategoryMapping[];
 }
 
 export interface ForwardAttachment {
@@ -101,5 +102,10 @@ export interface RouteConfig {
   userId?: string;
   destinationChannelId?: string;
   enabled?: boolean;
+}
+
+export interface RoleCategoryMapping {
+  roleId: Snowflake;
+  categoryId: Snowflake;
 }
 

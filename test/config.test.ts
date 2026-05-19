@@ -208,6 +208,121 @@ describe("loadAppConfig", () => {
       "TIMES_AGGREGATE_CHANNEL_ID must be a valid Discord snowflake.",
     );
   });
+
+  it("loads roleCategoryMappings from routes.yaml", async () => {
+    const cwd = await createTempProject();
+
+    await writeFile(
+      path.join(cwd, ".env"),
+      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\nTIMES_CATEGORY_ID=123456789012345699\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(cwd, "routes.yaml"),
+      [
+        'sourceChannelId: "223456789012345678"',
+        "roleCategoryMappings:",
+        '  - roleId: "111111111111111111"',
+        '    categoryId: "222222222222222222"',
+        '  - roleId: "333333333333333333"',
+        '    categoryId: "444444444444444444"',
+      ].join("\n"),
+      "utf8",
+    );
+
+    const config = await loadAppConfig({ cwd, baseEnv: {} });
+
+    expect(config.roleCategoryMappings).toEqual([
+      { roleId: "111111111111111111", categoryId: "222222222222222222" },
+      { roleId: "333333333333333333", categoryId: "444444444444444444" },
+    ]);
+  });
+
+  it("omits roleCategoryMappings when not set", async () => {
+    const cwd = await createTempProject();
+
+    await writeFile(
+      path.join(cwd, ".env"),
+      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\nTIMES_CATEGORY_ID=123456789012345699\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(cwd, "routes.yaml"),
+      'sourceChannelId: "223456789012345678"\n',
+      "utf8",
+    );
+
+    const config = await loadAppConfig({ cwd, baseEnv: {} });
+
+    expect(config.roleCategoryMappings).toBeUndefined();
+  });
+
+  it("fails when roleCategoryMappings entry has invalid roleId", async () => {
+    const cwd = await createTempProject();
+
+    await writeFile(
+      path.join(cwd, ".env"),
+      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\nTIMES_CATEGORY_ID=123456789012345699\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(cwd, "routes.yaml"),
+      [
+        'sourceChannelId: "223456789012345678"',
+        "roleCategoryMappings:",
+        '  - roleId: "not-a-snowflake"',
+        '    categoryId: "222222222222222222"',
+      ].join("\n"),
+      "utf8",
+    );
+
+    await expect(loadAppConfig({ cwd, baseEnv: {} })).rejects.toThrow(
+      "routes.yaml roleCategoryMappings[0].roleId must be a valid Discord snowflake.",
+    );
+  });
+
+  it("fails when roleCategoryMappings entry has invalid categoryId", async () => {
+    const cwd = await createTempProject();
+
+    await writeFile(
+      path.join(cwd, ".env"),
+      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\nTIMES_CATEGORY_ID=123456789012345699\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(cwd, "routes.yaml"),
+      [
+        'sourceChannelId: "223456789012345678"',
+        "roleCategoryMappings:",
+        '  - roleId: "111111111111111111"',
+        '    categoryId: "bad"',
+      ].join("\n"),
+      "utf8",
+    );
+
+    await expect(loadAppConfig({ cwd, baseEnv: {} })).rejects.toThrow(
+      "routes.yaml roleCategoryMappings[0].categoryId must be a valid Discord snowflake.",
+    );
+  });
+
+  it("fails when roleCategoryMappings is not an array", async () => {
+    const cwd = await createTempProject();
+
+    await writeFile(
+      path.join(cwd, ".env"),
+      "DISCORD_TOKEN=test-token\nGUILD_ID=123456789012345678\nTIMES_CATEGORY_ID=123456789012345699\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(cwd, "routes.yaml"),
+      'sourceChannelId: "223456789012345678"\nroleCategoryMappings: "wrong"\n',
+      "utf8",
+    );
+
+    await expect(loadAppConfig({ cwd, baseEnv: {} })).rejects.toThrow(
+      "routes.yaml roleCategoryMappings must be an array.",
+    );
+  });
 });
 
 async function createTempProject(): Promise<string> {

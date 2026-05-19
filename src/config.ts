@@ -4,13 +4,14 @@ import path from "node:path";
 import { parse as parseDotenv } from "dotenv";
 import YAML from "yaml";
 
-import type { AppConfig } from "./types.js";
+import type { AppConfig, RoleCategoryMapping } from "./types.js";
 
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const DEFAULT_TIMES_DB_PATH = "data/times.sqlite";
 
 interface LoadedRoutesConfig {
   sourceChannelId: string;
+  roleCategoryMappings?: RoleCategoryMapping[];
 }
 
 interface LoadAppConfigOptions {
@@ -101,10 +102,29 @@ export function parseRoutesConfig(raw: string): LoadedRoutesConfig {
     root.sourceChannelId,
     "routes.yaml sourceChannelId",
   );
+  const roleCategoryMappings = parseRoleCategoryMappings(root.roleCategoryMappings);
 
   return {
     sourceChannelId,
+    ...(roleCategoryMappings !== undefined ? { roleCategoryMappings } : {}),
   };
+}
+
+function parseRoleCategoryMappings(value: unknown): RoleCategoryMapping[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error("routes.yaml roleCategoryMappings must be an array.");
+  }
+
+  return value.map((item, index) => {
+    const entry = expectRecord(item, `routes.yaml roleCategoryMappings[${index}]`);
+    const roleId = readSnowflake(entry.roleId, `routes.yaml roleCategoryMappings[${index}].roleId`);
+    const categoryId = readSnowflake(entry.categoryId, `routes.yaml roleCategoryMappings[${index}].categoryId`);
+    return { roleId, categoryId };
+  });
 }
 
 async function loadOptionalEnvFile(
