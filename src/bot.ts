@@ -19,6 +19,8 @@ import type {
   MessageSnapshot,
 } from "./types.js";
 
+const CHANNEL_CREATED_ANNOUNCEMENT = "チャンネルを作りました";
+
 export interface ResolvedRoleMapping {
   roleId: string;
   category: CategoryChannel;
@@ -131,7 +133,8 @@ export async function handleIncomingMessage(
 
   // Check if user is registered, if not register them
   let destinationChannelId = runtime.store.getUser(message.author.id)?.destinationChannelId;
-  
+  let channelJustCreated = false;
+
   if (!destinationChannelId) {
     try {
       // Create destination channel
@@ -157,6 +160,7 @@ export async function handleIncomingMessage(
       });
 
       destinationChannelId = destinationChannel.id;
+      channelJustCreated = true;
 
       logger.info({
         event: "channel_created",
@@ -204,6 +208,13 @@ export async function handleIncomingMessage(
     
     if (!destinationChannel || !isSendableGuildTextChannel(destinationChannel)) {
       throw new Error(`Destination channel ${destinationChannelId} is not sendable.`);
+    }
+
+    if (channelJustCreated) {
+      await destinationChannel.send({
+        content: CHANNEL_CREATED_ANNOUNCEMENT,
+        allowedMentions: { parse: [] },
+      });
     }
 
     const sentMessage = await destinationChannel.send(decision.payload);
