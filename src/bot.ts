@@ -19,7 +19,8 @@ import type {
   MessageSnapshot,
 } from "./types.js";
 
-const CHANNEL_CREATED_ANNOUNCEMENT = "チャンネルを作りました";
+const CHANNEL_CREATED_ANNOUNCEMENT =
+  "times チャンネルを作りました！個人ので好きなことを自由につぶやいてOKです 🐦 チャンネル名も変更できます。他の人の times も自由に覗きに行けますよ！";
 
 export interface ResolvedRoleMapping {
   roleId: string;
