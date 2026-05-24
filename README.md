@@ -2,6 +2,8 @@
 
 Discord server 内の特定チャンネルに投稿したユーザーのメッセージを自動的に個人用の `times-<username>` チャンネルに転送し、SQLite で永続化する Bot です。
 
+> 開発フロー・ブランチ戦略・バージョニング方針は [DEVELOPMENT.md](DEVELOPMENT.md)、機能アイディアは [IDEAS.md](IDEAS.md) を参照してください。
+
 ## 特徴
 
 - **自動ユーザー登録**: `sourceChannelId` に投稿したユーザーは自動的に登録されます
