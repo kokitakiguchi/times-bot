@@ -11,6 +11,11 @@ on:
       - main
       - develop
 
+env:
+  # Opt into Node 24 runtime for JS-based actions (Node 20 deprecation by 2026-06-02).
+  # See: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   node:
     name: Node (test / typecheck / build)
