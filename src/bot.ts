@@ -19,6 +19,9 @@ import type {
   MessageSnapshot,
 } from "./types.js";
 
+const CHANNEL_CREATED_ANNOUNCEMENT =
+  "times チャンネルを作りました！個人ので好きなことを自由につぶやいてOKです 🐦 チャンネル名も変更できます。他の人の times も自由に覗きに行けますよ！";
+
 export interface ResolvedRoleMapping {
   roleId: string;
   category: CategoryChannel;
@@ -131,7 +134,8 @@ export async function handleIncomingMessage(
 
   // Check if user is registered, if not register them
   let destinationChannelId = runtime.store.getUser(message.author.id)?.destinationChannelId;
-  
+  let channelJustCreated = false;
+
   if (!destinationChannelId) {
     try {
       // Create destination channel
@@ -157,6 +161,7 @@ export async function handleIncomingMessage(
       });
 
       destinationChannelId = destinationChannel.id;
+      channelJustCreated = true;
 
       logger.info({
         event: "channel_created",
@@ -204,6 +209,13 @@ export async function handleIncomingMessage(
     
     if (!destinationChannel || !isSendableGuildTextChannel(destinationChannel)) {
       throw new Error(`Destination channel ${destinationChannelId} is not sendable.`);
+    }
+
+    if (channelJustCreated) {
+      await destinationChannel.send({
+        content: CHANNEL_CREATED_ANNOUNCEMENT,
+        allowedMentions: { parse: [] },
+      });
     }
 
     const sentMessage = await destinationChannel.send(decision.payload);
