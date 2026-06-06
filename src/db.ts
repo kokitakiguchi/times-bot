@@ -1,7 +1,14 @@
 import Database from "better-sqlite3";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import type { StoredMessage, StoredUser, UpsertUserInput, SaveMessageInput } from "./types.js";
+import type {
+  StoredMessage,
+  StoredUser,
+  UpsertUserInput,
+  SaveMessageInput,
+  AggregateMessageRef,
+  SaveAggregateMessageInput,
+} from "./types.js";
 
 export interface TimesStore {
   upsertUser(input: UpsertUserInput): void;
@@ -10,6 +17,9 @@ export interface TimesStore {
   getMessage(sourceMessageId: string): StoredMessage | undefined;
   updateMessageContent(sourceMessageId: string, content: string, editedAt: string): void;
   deleteMessage(sourceMessageId: string, deletedAt: string): void;
+  saveAggregateMessage(input: SaveAggregateMessageInput): void;
+  getAggregateByTimesMessageId(timesMessageId: string): AggregateMessageRef | undefined;
+  getAggregateByAggregateMessageId(aggregateMessageId: string): AggregateMessageRef | undefined;
   close(): void;
 }
 
@@ -52,6 +62,15 @@ export async function initializeTimes(dbPath: string): Promise<TimesStore> {
       record_created_at TEXT NOT NULL,
       record_updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS aggregate_messages (
+      times_message_id TEXT PRIMARY KEY,
+      times_channel_id TEXT NOT NULL,
+      aggregate_message_id TEXT NOT NULL UNIQUE,
+      user_id TEXT NOT NULL,
+      guild_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
@@ -187,8 +206,53 @@ export async function initializeTimes(dbPath: string): Promise<TimesStore> {
       stmt.run(deletedAt, now, sourceMessageId);
     },
 
+    saveAggregateMessage(input: SaveAggregateMessageInput): void {
+      const now = new Date().toISOString();
+      const stmt = db.prepare(`
+        INSERT INTO aggregate_messages (
+          times_message_id, times_channel_id, aggregate_message_id,
+          user_id, guild_id, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(times_message_id) DO UPDATE SET
+          aggregate_message_id = excluded.aggregate_message_id
+      `);
+
+      stmt.run(
+        input.timesMessageId,
+        input.timesChannelId,
+        input.aggregateMessageId,
+        input.userId,
+        input.guildId,
+        now,
+      );
+    },
+
+    getAggregateByTimesMessageId(timesMessageId: string): AggregateMessageRef | undefined {
+      const stmt = db.prepare("SELECT * FROM aggregate_messages WHERE times_message_id = ?");
+      const row = stmt.get(timesMessageId) as any;
+      return row ? mapAggregateRow(row) : undefined;
+    },
+
+    getAggregateByAggregateMessageId(aggregateMessageId: string): AggregateMessageRef | undefined {
+      const stmt = db.prepare("SELECT * FROM aggregate_messages WHERE aggregate_message_id = ?");
+      const row = stmt.get(aggregateMessageId) as any;
+      return row ? mapAggregateRow(row) : undefined;
+    },
+
     close(): void {
       db.close();
     },
+  };
+}
+
+function mapAggregateRow(row: any): AggregateMessageRef {
+  return {
+    timesMessageId: row.times_message_id,
+    timesChannelId: row.times_channel_id,
+    aggregateMessageId: row.aggregate_message_id,
+    userId: row.user_id,
+    guildId: row.guild_id,
+    createdAt: row.created_at,
   };
 }

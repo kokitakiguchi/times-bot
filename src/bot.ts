@@ -304,10 +304,18 @@ export async function handleAggregateForward(
   }));
 
   try {
-    await runtime.timesAggregateChannel.send({
+    const sent = await runtime.timesAggregateChannel.send({
       embeds: [embed],
       files,
       allowedMentions: { parse: [] },
+    });
+
+    runtime.store.saveAggregateMessage({
+      timesMessageId: message.id,
+      timesChannelId: message.channelId,
+      aggregateMessageId: sent.id,
+      userId: message.author.id,
+      guildId: message.guildId ?? runtime.guildId,
     });
 
     logger.info({
@@ -316,6 +324,7 @@ export async function handleAggregateForward(
       authorId: message.author.id,
       sourceChannelId: message.channelId,
       aggregateChannelId: runtime.timesAggregateChannel.id,
+      aggregateMessageId: sent.id,
     });
   } catch (error) {
     logger.error({
@@ -398,55 +407,134 @@ function isTimesCategory(
   return runtime.resolvedRoleMappings.some((m) => m.category.id === categoryId);
 }
 
-export async function handleReactionAdd(
+type ReactionAction = "add" | "remove";
+
+type ReactionFlow = "source_to_times" | "times_to_aggregate" | "aggregate_to_times";
+
+interface ReactionTarget {
+  channelId: string;
+  messageId: string;
+  flow: ReactionFlow;
+}
+
+/**
+ * Maps a reacted-on message to the message(s) the reaction should be mirrored onto.
+ * - source channel message -> the forwarded copy in the user's times channel
+ * - times channel message  -> the aggregated copy in the aggregate channel
+ * - aggregate message      -> the original message in the user's times channel
+ */
+function resolveReactionTargets(message: Message, runtime: ResolvedRuntime): ReactionTarget[] {
+  if (message.channelId === runtime.sourceChannelId) {
+    const stored = runtime.store.getMessage(message.id);
+    if (!stored) return [];
+    return [
+      {
+        channelId: stored.destinationChannelId,
+        messageId: stored.forwardedMessageId,
+        flow: "source_to_times",
+      },
+    ];
+  }
+
+  if (!runtime.timesAggregateChannel) return [];
+
+  if (message.channelId === runtime.timesAggregateChannel.id) {
+    const mapping = runtime.store.getAggregateByAggregateMessageId(message.id);
+    if (!mapping) return [];
+    return [
+      {
+        channelId: mapping.timesChannelId,
+        messageId: mapping.timesMessageId,
+        flow: "aggregate_to_times",
+      },
+    ];
+  }
+
+  const parentId =
+    message.channel && "parentId" in message.channel ? message.channel.parentId : null;
+  if (isTimesCategory(parentId, runtime)) {
+    const mapping = runtime.store.getAggregateByTimesMessageId(message.id);
+    if (!mapping) return [];
+    return [
+      {
+        channelId: runtime.timesAggregateChannel.id,
+        messageId: mapping.aggregateMessageId,
+        flow: "times_to_aggregate",
+      },
+    ];
+  }
+
+  return [];
+}
+
+async function syncReaction(
+  action: ReactionAction,
   reaction: MessageReaction | PartialMessageReaction,
   user: User | PartialUser,
-  _client: Client,
+  client: Client,
   runtime: ResolvedRuntime,
   logger: Logger,
 ): Promise<void> {
+  // Ignore the bot's own reactions; this is what prevents mirror loops in the
+  // bidirectional (times <-> aggregate) flows.
   if (user.bot) return;
 
   let resolved: MessageReaction;
+  let message: Message;
   try {
     resolved = reaction.partial ? await reaction.fetch() : reaction;
-    if (resolved.message.partial) await resolved.message.fetch();
+    message = resolved.message.partial ? await resolved.message.fetch() : resolved.message;
   } catch (error) {
     logger.error({ event: "reaction_fetch_failed", err: error });
     return;
   }
 
-  if (resolved.message.channelId !== runtime.sourceChannelId) return;
-
-  const stored = runtime.store.getMessage(resolved.message.id);
-  if (!stored) return;
-
   const emojiKey = resolved.emoji.id ?? resolved.emoji.name;
   if (!emojiKey) return;
 
-  try {
-    const destChannel = await resolved.message.guild?.channels.fetch(stored.destinationChannelId);
-    if (!destChannel || !isSendableGuildTextChannel(destChannel)) return;
+  const targets = resolveReactionTargets(message, runtime);
 
-    const forwardedMsg = await destChannel.messages.fetch(stored.forwardedMessageId);
-    await forwardedMsg.react(emojiKey);
+  for (const target of targets) {
+    try {
+      const channel = await message.guild?.channels.fetch(target.channelId);
+      if (!channel || !isSendableGuildTextChannel(channel)) continue;
 
-    logger.info({
-      event: "reaction_synced",
-      action: "add",
-      sourceMessageId: resolved.message.id,
-      forwardedMessageId: stored.forwardedMessageId,
-      emoji: emojiKey,
-    });
-  } catch (error) {
-    logger.error({
-      event: "reaction_sync_failed",
-      action: "add",
-      err: error,
-      sourceMessageId: resolved.message.id,
-      emoji: emojiKey,
-    });
+      const targetMsg = await channel.messages.fetch(target.messageId);
+      if (action === "add") {
+        await targetMsg.react(emojiKey);
+      } else if (client.user) {
+        await targetMsg.reactions.cache.get(emojiKey)?.users.remove(client.user.id);
+      }
+
+      logger.info({
+        event: "reaction_synced",
+        action,
+        flow: target.flow,
+        sourceMessageId: message.id,
+        targetMessageId: target.messageId,
+        emoji: emojiKey,
+      });
+    } catch (error) {
+      logger.error({
+        event: "reaction_sync_failed",
+        action,
+        flow: target.flow,
+        err: error,
+        sourceMessageId: message.id,
+        emoji: emojiKey,
+      });
+    }
   }
+}
+
+export async function handleReactionAdd(
+  reaction: MessageReaction | PartialMessageReaction,
+  user: User | PartialUser,
+  client: Client,
+  runtime: ResolvedRuntime,
+  logger: Logger,
+): Promise<void> {
+  await syncReaction("add", reaction, user, client, runtime, logger);
 }
 
 export async function handleReactionRemove(
@@ -456,48 +544,5 @@ export async function handleReactionRemove(
   runtime: ResolvedRuntime,
   logger: Logger,
 ): Promise<void> {
-  if (user.bot) return;
-
-  let resolved: MessageReaction;
-  try {
-    resolved = reaction.partial ? await reaction.fetch() : reaction;
-    if (resolved.message.partial) await resolved.message.fetch();
-  } catch (error) {
-    logger.error({ event: "reaction_fetch_failed", err: error });
-    return;
-  }
-
-  if (resolved.message.channelId !== runtime.sourceChannelId) return;
-
-  const stored = runtime.store.getMessage(resolved.message.id);
-  if (!stored) return;
-
-  const emojiKey = resolved.emoji.id ?? resolved.emoji.name;
-  if (!emojiKey) return;
-
-  try {
-    const destChannel = await resolved.message.guild?.channels.fetch(stored.destinationChannelId);
-    if (!destChannel || !isSendableGuildTextChannel(destChannel)) return;
-
-    const forwardedMsg = await destChannel.messages.fetch(stored.forwardedMessageId);
-    if (client.user) {
-      await forwardedMsg.reactions.cache.get(emojiKey)?.users.remove(client.user.id);
-    }
-
-    logger.info({
-      event: "reaction_synced",
-      action: "remove",
-      sourceMessageId: resolved.message.id,
-      forwardedMessageId: stored.forwardedMessageId,
-      emoji: emojiKey,
-    });
-  } catch (error) {
-    logger.error({
-      event: "reaction_sync_failed",
-      action: "remove",
-      err: error,
-      sourceMessageId: resolved.message.id,
-      emoji: emojiKey,
-    });
-  }
+  await syncReaction("remove", reaction, user, client, runtime, logger);
 }
