@@ -213,8 +213,8 @@ export async function handleIncomingMessage(
 
     if (channelJustCreated) {
       await destinationChannel.send({
-        content: CHANNEL_CREATED_ANNOUNCEMENT,
-        allowedMentions: { parse: [] },
+        content: `<@${message.author.id}>\n${CHANNEL_CREATED_ANNOUNCEMENT}`,
+        allowedMentions: { parse: [], users: [message.author.id] },
       });
     }
 
