@@ -33,4 +33,5 @@ COPY env.example ./env.example
 COPY routes.example.yaml ./routes.example.yaml
 RUN mkdir -p data
 
+EXPOSE 3000
 CMD ["node", "dist/index.js"]
