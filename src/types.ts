@@ -99,6 +99,23 @@ export interface SaveMessageInput {
   recordedAt: string;
 }
 
+export interface AggregateMessageRef {
+  timesMessageId: Snowflake;
+  timesChannelId: Snowflake;
+  aggregateMessageId: Snowflake;
+  userId: Snowflake;
+  guildId: Snowflake;
+  createdAt: string;
+}
+
+export interface SaveAggregateMessageInput {
+  timesMessageId: Snowflake;
+  timesChannelId: Snowflake;
+  aggregateMessageId: Snowflake;
+  userId: Snowflake;
+  guildId: Snowflake;
+}
+
 export interface RouteConfig {
   userId?: string;
   destinationChannelId?: string;

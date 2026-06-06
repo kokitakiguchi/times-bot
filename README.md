@@ -11,6 +11,7 @@ Discord server 内の特定チャンネルに投稿したユーザーのメッ�
 - **メッセージ永続化**: すべてのメッセージを SQLite に保存し、編集・削除の履歴も記録します
 - **ユーザー情報スナップショット**: username や displayName の変更を追跡しつつ、チャンネル名は固定に保ちます
 - **タイムライン集約**: 各 times チャンネルへの投稿を1つの集約チャンネルにまとめて表示します（オプション）
+- **リアクション同期**: 監視元チャンネルのリアクションを転送先 `times-<username>` に反映します。さらに集約チャンネルを使う場合は、times チャンネルと集約チャンネルの間でリアクションを**双方向に**同期します
 - **ロールベースカテゴリ振り分け**: ユーザーの Discord ロールに応じて、チャンネルを配置するカテゴリを動的に切り替えられます（オプション）
 
 ## 最短手順
@@ -188,13 +189,15 @@ docker compose down
 Botを作成したら、少なくとも次を確認してください。
 
 - Developer Portalの `Bot` 設定で `Message Content Intent` を有効化する
-- Botを対象サーバーに招待する（権限には `Manage Channels`, `View Channels`, `Send Messages`, `Attach Files` を含める）
+- Botを対象サーバーに招待する（権限には `Manage Channels`, `View Channels`, `Send Messages`, `Attach Files`, `Add Reactions` を含める）
 - 監視元チャンネル（`sourceChannelId`）でBotがメッセージを読めるようにする
 - TIMES_CATEGORY_ID カテゴリで以下の権限を付与する
   - Manage Channels: 自動チャンネル作成に必須
   - View Channels: チャンネル閲覧に必須
   - Send Messages: メッセージ送信に必須
   - Attach Files: ファイル転送が必要な場合に必須
+  - Add Reactions: リアクション同期に必須
+- 集約チャンネル（`TIMES_AGGREGATE_CHANNEL_ID`）を使う場合は、そのチャンネルでも `View Channels`, `Send Messages`, `Add Reactions` を付与する（双方向リアクション同期のため）
 - Bot のロールがカテゴリの権限設定より上位にあることを確認（ロールの順序が重要）
 - `roleCategoryMappings` を使う場合は、`TIMES_CATEGORY_ID` に加えて振り分け先カテゴリすべてに上記と同じ権限を付与する
 
@@ -202,6 +205,7 @@ Botを作成したら、少なくとも次を確認してください。
 
 - `Guilds`
 - `GuildMessages`
+- `GuildMessageReactions`
 - `MessageContent`
 
 ## devcontainerとローカル実行
@@ -227,6 +231,8 @@ pnpm start
 - `TIMES_AGGREGATE_CHANNEL_ID` を設定した場合、各 times チャンネルへの投稿が集約チャンネルに Embed で表示される
   - Embed 内のチャンネルリンクをクリックすると投稿元チャンネルに飛べる
   - ユーザーごとに異なる色で表示される
+  - times チャンネル側・集約チャンネル側どちらにリアクションを付けても、もう一方に同期される（双方向）
+- 監視元チャンネルのメッセージに付けたリアクションは、転送先 `times-<username>` のメッセージにも反映される
 - `roleCategoryMappings` を設定した場合
   - 対象ロールを持つユーザーの初回投稿で、対応カテゴリにチャンネルが作成される
   - どのロールも持たないユーザーは `TIMES_CATEGORY_ID` にフォールバックされる
