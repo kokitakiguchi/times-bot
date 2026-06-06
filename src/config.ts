@@ -53,7 +53,7 @@ export function parseEnvConfig(
   env: Record<string, string | undefined>,
 ): Pick<
   AppConfig,
-  "discordToken" | "guildId" | "enableMessageContentIntent" | "timesCategoryId" | "timesDbPath" | "timesAggregateChannelId"
+  "discordToken" | "guildId" | "enableMessageContentIntent" | "timesCategoryId" | "timesDbPath" | "timesAggregateChannelId" | "healthCheckPort"
 > {
   const discordToken = readRequiredString(env.DISCORD_TOKEN, "DISCORD_TOKEN");
   const guildId = readSnowflake(env.GUILD_ID, "GUILD_ID");
@@ -74,6 +74,7 @@ export function parseEnvConfig(
     env.TIMES_AGGREGATE_CHANNEL_ID,
     "TIMES_AGGREGATE_CHANNEL_ID",
   );
+  const healthCheckPort = readOptionalPort(env.HEALTH_CHECK_PORT, "HEALTH_CHECK_PORT", 3000);
 
   return {
     discordToken,
@@ -81,6 +82,7 @@ export function parseEnvConfig(
     enableMessageContentIntent,
     timesCategoryId,
     timesDbPath,
+    healthCheckPort,
     ...(timesAggregateChannelId !== undefined ? { timesAggregateChannelId } : {}),
   };
 }
@@ -189,6 +191,20 @@ function readOptionalSnowflake(value: unknown, label: string): string | undefine
   }
 
   return readSnowflake(value, label);
+}
+
+function readOptionalPort(value: unknown, label: string, defaultValue: number): number {
+  if (value === undefined || value === "") {
+    return defaultValue;
+  }
+
+  const parsed = parseInt(String(value), 10);
+
+  if (isNaN(parsed) || parsed < 1 || parsed > 65535) {
+    throw new Error(`${label} must be a valid port number (1-65535).`);
+  }
+
+  return parsed;
 }
 
 function readBooleanString(

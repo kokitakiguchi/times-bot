@@ -3,9 +3,17 @@ services:
     build: .
     env_file:
       - .env
+    ports:
+      - "3000:3000"
     volumes:
       - ./routes.yaml:/app/routes.yaml:ro
       - times-db:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
 
 volumes:

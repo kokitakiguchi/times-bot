@@ -1,6 +1,7 @@
 import type { Logger } from "pino";
 import {
   GatewayIntentBits,
+  Partials,
   ChannelType,
   EmbedBuilder,
   type Client,
@@ -9,6 +10,10 @@ import {
   type GuildTextBasedChannel,
   type CategoryChannel,
   type Message,
+  type MessageReaction,
+  type PartialMessageReaction,
+  type User,
+  type PartialUser,
 } from "discord.js";
 
 import { decideForward } from "./forwarding.js";
@@ -45,13 +50,17 @@ export function createClientOptions(config: AppConfig): ClientOptions {
   const intents = [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
   ];
 
   if (config.enableMessageContentIntent) {
     intents.push(GatewayIntentBits.MessageContent);
   }
 
-  return { intents };
+  return {
+    intents,
+    partials: [Partials.Message, Partials.Channel, Partials.Reaction],
+  };
 }
 
 export async function resolveRuntime(
@@ -387,4 +396,108 @@ function isTimesCategory(
   if (!categoryId) return false;
   if (categoryId === runtime.timesCategoryId) return true;
   return runtime.resolvedRoleMappings.some((m) => m.category.id === categoryId);
+}
+
+export async function handleReactionAdd(
+  reaction: MessageReaction | PartialMessageReaction,
+  user: User | PartialUser,
+  _client: Client,
+  runtime: ResolvedRuntime,
+  logger: Logger,
+): Promise<void> {
+  if (user.bot) return;
+
+  let resolved: MessageReaction;
+  try {
+    resolved = reaction.partial ? await reaction.fetch() : reaction;
+    if (resolved.message.partial) await resolved.message.fetch();
+  } catch (error) {
+    logger.error({ event: "reaction_fetch_failed", err: error });
+    return;
+  }
+
+  if (resolved.message.channelId !== runtime.sourceChannelId) return;
+
+  const stored = runtime.store.getMessage(resolved.message.id);
+  if (!stored) return;
+
+  const emojiKey = resolved.emoji.id ?? resolved.emoji.name;
+  if (!emojiKey) return;
+
+  try {
+    const destChannel = await resolved.message.guild?.channels.fetch(stored.destinationChannelId);
+    if (!destChannel || !isSendableGuildTextChannel(destChannel)) return;
+
+    const forwardedMsg = await destChannel.messages.fetch(stored.forwardedMessageId);
+    await forwardedMsg.react(emojiKey);
+
+    logger.info({
+      event: "reaction_synced",
+      action: "add",
+      sourceMessageId: resolved.message.id,
+      forwardedMessageId: stored.forwardedMessageId,
+      emoji: emojiKey,
+    });
+  } catch (error) {
+    logger.error({
+      event: "reaction_sync_failed",
+      action: "add",
+      err: error,
+      sourceMessageId: resolved.message.id,
+      emoji: emojiKey,
+    });
+  }
+}
+
+export async function handleReactionRemove(
+  reaction: MessageReaction | PartialMessageReaction,
+  user: User | PartialUser,
+  client: Client,
+  runtime: ResolvedRuntime,
+  logger: Logger,
+): Promise<void> {
+  if (user.bot) return;
+
+  let resolved: MessageReaction;
+  try {
+    resolved = reaction.partial ? await reaction.fetch() : reaction;
+    if (resolved.message.partial) await resolved.message.fetch();
+  } catch (error) {
+    logger.error({ event: "reaction_fetch_failed", err: error });
+    return;
+  }
+
+  if (resolved.message.channelId !== runtime.sourceChannelId) return;
+
+  const stored = runtime.store.getMessage(resolved.message.id);
+  if (!stored) return;
+
+  const emojiKey = resolved.emoji.id ?? resolved.emoji.name;
+  if (!emojiKey) return;
+
+  try {
+    const destChannel = await resolved.message.guild?.channels.fetch(stored.destinationChannelId);
+    if (!destChannel || !isSendableGuildTextChannel(destChannel)) return;
+
+    const forwardedMsg = await destChannel.messages.fetch(stored.forwardedMessageId);
+    if (client.user) {
+      await forwardedMsg.reactions.cache.get(emojiKey)?.users.remove(client.user.id);
+    }
+
+    logger.info({
+      event: "reaction_synced",
+      action: "remove",
+      sourceMessageId: resolved.message.id,
+      forwardedMessageId: stored.forwardedMessageId,
+      emoji: emojiKey,
+    });
+  } catch (error) {
+    logger.error({
+      event: "reaction_sync_failed",
+      action: "remove",
+      err: error,
+      sourceMessageId: resolved.message.id,
+      emoji: emojiKey,
+    });
+  }
 }
