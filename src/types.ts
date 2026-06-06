@@ -9,6 +9,7 @@ export interface AppConfig {
   timesDbPath: string;
   timesAggregateChannelId?: Snowflake;
   roleCategoryMappings?: RoleCategoryMapping[];
+  healthCheckPort: number;
 }
 
 export interface ForwardAttachment {

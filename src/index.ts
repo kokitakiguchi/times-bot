@@ -1,15 +1,22 @@
 import { Client, Events } from "discord.js";
+import type { Server } from "node:http";
 
 import { createClientOptions, handleIncomingMessage, handleAggregateForward, handleReactionAdd, handleReactionRemove, resolveRuntime } from "./bot.js";
 import { loadAppConfig } from "./config.js";
+import { startHealthServer } from "./health.js";
 import { logger } from "./logger.js";
 
 async function main(): Promise<void> {
   const config = await loadAppConfig();
   const client = new Client(createClientOptions(config));
-  const shutdown = createShutdownHandler(client);
-  bindShutdownSignals(shutdown);
   let runtime: Awaited<ReturnType<typeof resolveRuntime>> | null = null;
+  const healthServer = startHealthServer(
+    () => client.isReady() && runtime !== null,
+    config.healthCheckPort,
+    logger,
+  );
+  const shutdown = createShutdownHandler(client, healthServer);
+  bindShutdownSignals(shutdown);
 
   if (!config.enableMessageContentIntent) {
     logger.warn({
@@ -67,7 +74,7 @@ async function main(): Promise<void> {
   await client.login(config.discordToken);
 }
 
-function createShutdownHandler(client: Client) {
+function createShutdownHandler(client: Client, healthServer: Server) {
   let shuttingDown = false;
 
   return async (reason: string, exitCode = 0) => {
@@ -81,6 +88,7 @@ function createShutdownHandler(client: Client) {
       reason,
       exitCode,
     });
+    healthServer.close();
     client.destroy();
     process.exit(exitCode);
   };
