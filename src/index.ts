@@ -1,6 +1,6 @@
 import { Client, Events } from "discord.js";
 
-import { createClientOptions, handleIncomingMessage, handleAggregateForward, resolveRuntime } from "./bot.js";
+import { createClientOptions, handleIncomingMessage, handleAggregateForward, handleReactionAdd, handleReactionRemove, resolveRuntime } from "./bot.js";
 import { loadAppConfig } from "./config.js";
 import { logger } from "./logger.js";
 
@@ -52,6 +52,16 @@ async function main(): Promise<void> {
 
     void handleIncomingMessage(message, runtime, logger);
     void handleAggregateForward(message, runtime, logger);
+  });
+
+  client.on(Events.MessageReactionAdd, (reaction, user) => {
+    if (runtime === null) return;
+    void handleReactionAdd(reaction, user, client, runtime, logger);
+  });
+
+  client.on(Events.MessageReactionRemove, (reaction, user) => {
+    if (runtime === null) return;
+    void handleReactionRemove(reaction, user, client, runtime, logger);
   });
 
   await client.login(config.discordToken);
